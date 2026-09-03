@@ -31,11 +31,11 @@
 
 ## Overview
 
-**CGPU (Cloud GPU)** is a cloud-based **GPU-as-a-Service (GPUaaS)** platform designed to efficiently manage and share GPU resources across multiple computing nodes.
+**CGPU (Cloud GPU)** is a cloud-based **GPU-as-a-Service (GPUaaS)** platform designed to efficiently manage, virtualize, and share GPU resources across multiple computing nodes.
 
 The platform creates a centralized **GPU resource pool** and allows users to submit GPU workloads without manually selecting a physical GPU. A GPU-aware scheduler identifies suitable resources based on GPU availability, memory, utilization, and allocation status.
 
-CGPU integrates **GPU virtualization and resource sharing** to allow multiple workloads to utilize a physical GPU when sufficient resources are available.
+CGPU provides a **GPU virtualization and resource-sharing layer** that enables multiple workloads to utilize a physical GPU when sufficient resources are available.
 
 The system is designed around core distributed-system concepts including:
 
@@ -82,8 +82,64 @@ CGPU addresses this problem by maintaining a pool of GPU resources and efficient
         GPU           GPU           GPU
         │             │             │
       Jobs          Jobs          Jobs
+```
+
+---
 
 # 🏗️ Architecture
+
+CGPU consists of multiple components working together to provide GPU resource pooling, scheduling, virtualization, and workload execution.
+
+```text
+                         ┌───────────────────┐
+                         │       Users       │
+                         └─────────┬─────────┘
+                                   │
+                                   ▼
+                         ┌───────────────────┐
+                         │   Next.js Web UI  │
+                         └─────────┬─────────┘
+                                   │
+                                   ▼
+                         ┌───────────────────┐
+                         │    CGPU API       │
+                         │      (Go)         │
+                         └─────────┬─────────┘
+                                   │
+                    ┌──────────────┼──────────────┐
+                    │              │              │
+                    ▼              ▼              ▼
+              ┌──────────┐  ┌────────────┐  ┌────────────┐
+              │   Job    │  │   GPU      │  │  Resource  │
+              │ Manager  │  │ Scheduler  │  │  Manager   │
+              └──────────┘  └─────┬──────┘  └────────────┘
+                                   │
+                                   ▼
+                         ┌───────────────────┐
+                         │ GPU Virtualization│
+                         │      Layer        │
+                         └─────────┬─────────┘
+                                   │
+                    ┌──────────────┼──────────────┐
+                    │              │              │
+                    ▼              ▼              ▼
+               ┌────────┐     ┌────────┐     ┌────────┐
+               │ GPU    │     │ GPU    │     │ GPU    │
+               │ Node 1 │     │ Node 2 │     │ Node 3 │
+               └────────┘     └────────┘     └────────┘
+                    │              │              │
+                    ▼              ▼              ▼
+               NVIDIA GPU     NVIDIA GPU     NVIDIA GPU
+
+                         │
+                         ▼
+                  ┌──────────────┐
+                  │   MongoDB    │
+                  └──────────────┘
+```
+
+---
+
 # Key Features
 
 ### 🎮 GPU Resource Pooling
@@ -103,7 +159,7 @@ The scheduler tracks:
 
 ### 🧩 GPU Virtualization
 
-CGPU can integrate with **HAMi** to support GPU resource sharing.
+CGPU provides its own **GPU virtualization and resource-sharing layer** to enable multiple workloads to share a physical GPU.
 
 Instead of:
 
@@ -122,6 +178,8 @@ Job A Job B Job C
 ```
 
 This improves GPU utilization for workloads that do not require the complete GPU.
+
+The virtualization layer manages GPU resource allocation and enforces the requested resource limits for individual workloads.
 
 ---
 
@@ -240,20 +298,20 @@ Grafana
 
 # 🧰 Technology Stack
 
-| Layer                 | Technology               |
-| --------------------- | ------------------------ |
-| Frontend              | Next.js                  |
-| Backend               | Go (Golang)              |
-| API                   | REST API                 |
-| Database              | MongoDB                  |
-| Containerization      | Docker                   |
-| Orchestration         | Kubernetes               |
-| GPU Computing         | NVIDIA CUDA              |
-| GPU Container Support | NVIDIA Container Toolkit |
-| GPU Management        | NVIDIA GPU Operator      |
-| GPU Virtualization    | HAMi                     |
-| Monitoring            | Prometheus + Grafana     |
-| Version Control       | Git / GitHub             |
+| Layer                 | Technology                    |
+| --------------------- | ----------------------------- |
+| Frontend              | Next.js                       |
+| Backend               | Go (Golang)                   |
+| API                   | REST API                      |
+| Database              | MongoDB                       |
+| Containerization      | Docker                        |
+| Orchestration         | Kubernetes                    |
+| GPU Computing         | NVIDIA CUDA                   |
+| GPU Container Support | NVIDIA Container Toolkit      |
+| GPU Management        | NVIDIA GPU Operator           |
+| GPU Virtualization    | CGPU GPU Virtualization Layer |
+| Monitoring            | Prometheus + Grafana          |
+| Version Control       | Git / GitHub                  |
 
 ---
 
@@ -309,7 +367,7 @@ CGPU:
 5. Finds a suitable GPU.
 6. Reserves the required resource.
 7. Deploys the workload through Kubernetes.
-8. Uses HAMi for GPU sharing/virtualization when applicable.
+8. Configures the CGPU GPU virtualization layer when GPU sharing is required.
 9. Monitors the workload.
 10. Stores the job status and result.
 11. Returns the result to the user.
@@ -364,8 +422,6 @@ The evaluation will determine whether GPU resource pooling and virtualization ca
 
 ---
 
----
-
 # 🚀 Getting Started
 
 > **Note:** Setup instructions will be added as the implementation progresses.
@@ -390,6 +446,7 @@ git clone https://github.com/<your-username>/cgpu.git
 cd cgpu
 ```
 
+---
 
 # 🔬 Project Scope
 
@@ -397,7 +454,24 @@ CGPU focuses on the intersection of:
 
 **Cloud Computing + GPU Computing + GPU Virtualization + Resource Pooling + Scheduling + Distributed Systems**
 
-The project does not aim to replace existing GPU virtualization systems. Instead, technologies such as HAMi are used as underlying infrastructure while CGPU focuses on the **cloud-facing resource management, scheduling, job management, persistence, and user interface**.
+The project includes the design and implementation of a **custom GPU virtualization and resource-sharing layer** along with the cloud-facing resource management, scheduling, job management, persistence, and user interface.
+
+The virtualization layer is responsible for enabling multiple workloads to share physical GPU resources while managing resource allocation, resource limits, and workload isolation.
+
+CGPU aims to provide an end-to-end platform covering:
+
+* GPU resource discovery
+* GPU resource pooling
+* GPU-aware scheduling
+* GPU virtualization
+* Fractional GPU allocation
+* GPU memory management
+* Multi-tenant workload execution
+* Containerized workload deployment
+* Resource isolation
+* GPU monitoring
+* Job lifecycle management
+* Persistent resource and workload state
 
 ---
 
@@ -406,7 +480,7 @@ The project does not aim to replace existing GPU virtualization systems. Instead
 Contributions, suggestions, and improvements are welcome.
 
 1. Fork the repository.
-2. Create issue branch. Name: <#issueno>
+2. Create issue branch. Name: `<#issueno>`
 3. Make your changes.
 4. Add appropriate tests.
 5. Submit a pull request.
@@ -418,4 +492,5 @@ Contributions, suggestions, and improvements are welcome.
 This project will be released under the **Apache License 2.0**.
 
 ---
-`gpu` `gpu-computing` `gpu-cloud` `cloud-computing` `gpu-virtualization` `gpu-sharing` `gpu-scheduling` `gpu-resource-management` `resource-pooling` `gpu-as-a-service` `iaas` `kubernetes` `hami` `docker` `cuda` `nvidia` `golang` `go` `mongodb` `distributed-systems` `cloud-native` `multi-tenant` `resource-management` `gpu-cluster` `gpu-orchestration` `nextjs` `prometheus` `grafana`
+
+`gpu` `gpu-computing` `gpu-cloud` `cloud-computing` `gpu-virtualization` `gpu-sharing` `gpu-scheduling` `gpu-resource-management` `resource-pooling` `gpu-as-a-service` `iaas` `kubernetes` `docker` `cuda` `nvidia` `golang` `go` `mongodb` `distributed-systems` `cloud-native` `multi-tenant` `resource-management` `gpu-cluster` `gpu-orchestration` `nextjs` `prometheus` `grafana`
