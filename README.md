@@ -1,4 +1,4 @@
-# CGPU — Cloud GPU Resource Pooling and Virtualization Platform
+# CGPU — Cloud GPU Resource Pooling and Virtualization Platform ...
 
 <p align="center">
 
