@@ -344,19 +344,37 @@ Workload Execution
 
 ---
 
-# 👨‍💻 Example Use Case
+# 👨‍💻 Example Use Case & API Contract
 
-A user wants to run a PyTorch inference workload.
-
-They submit:
+A user submits a PyTorch image classification workload requesting fractional GPU capacity:
 
 ```json
 {
-  "workload": "image-classification",
-  "gpu_memory": "4GB",
-  "framework": "PyTorch"
+  "request_id": "req-7b3f9408-e4b2-4d56-b072-20c2420a8511",
+  "name": "resnet18-cifar10-run-1",
+  "workload_id": "pytorch-resnet18-cifar10",
+  "requested_vram_mib": 2048,
+  "parameters": {
+    "epochs": 5,
+    "batch_size": 64,
+    "learning_rate": 0.001,
+    "optimizer": "adam"
+  },
+  "dataset": {
+    "type": "builtin",
+    "name": "cifar10",
+    "uri": "builtin://cifar10"
+  },
+  "priority": 5,
+  "timeout_seconds": 3600
 }
 ```
+
+Detailed API specifications, OpenAPI contracts, and mock responses are documented in:
+* [Job API Specification](docs/api/job-api-specification.md)
+* [Scheduler Handoff Specification](docs/api/scheduler-handoff-spec.md)
+* [OpenAPI 3.1 Contract](api/openapi/openapi.yaml)
+* [Mock Responses Directory](api/mocks/)
 
 CGPU:
 

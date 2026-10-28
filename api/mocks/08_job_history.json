@@ -1,0 +1,54 @@
+{
+  "status_code": 200,
+  "data": {
+    "items": [
+      {
+        "job_id": "job-9e2b14f8-45a1-432c-b58a-6b5832a8e412",
+        "name": "resnet18-cifar10-run-1",
+        "workload_id": "pytorch-resnet18-cifar10",
+        "status": "SUCCEEDED",
+        "requested_vram_mib": 2048,
+        "node_id": "wsl-worker-rtx4050-01",
+        "submitted_at": "2026-11-14T11:19:50Z",
+        "duration_seconds": 184.2
+      },
+      {
+        "job_id": "job-87fc3182-1100-4b34-8c99-90de5b1287c2",
+        "name": "cifar10-benchmark-run",
+        "workload_id": "pytorch-resnet18-cifar10",
+        "status": "RUNNING",
+        "requested_vram_mib": 2048,
+        "node_id": "wsl-worker-rtx4050-01",
+        "submitted_at": "2026-11-14T11:20:00Z",
+        "duration_seconds": 210.0
+      },
+      {
+        "job_id": "job-f1503921-bc74-4b52-9cb0-1845bb08a120",
+        "name": "overallocated-batch-job",
+        "workload_id": "pytorch-resnet18-cifar10",
+        "status": "FAILED",
+        "requested_vram_mib": 2048,
+        "node_id": "wsl-worker-rtx4050-01",
+        "submitted_at": "2026-11-14T11:20:50Z",
+        "duration_seconds": 65.4
+      },
+      {
+        "job_id": "job-d41a7e23-7890-41bc-9602-0a12e8b23f99",
+        "name": "large-batch-resnet18",
+        "workload_id": "pytorch-resnet18-cifar10",
+        "status": "PENDING",
+        "requested_vram_mib": 4096,
+        "node_id": null,
+        "submitted_at": "2026-11-14T11:21:00Z",
+        "duration_seconds": null
+      }
+    ],
+    "pagination": {
+      "current_page": 1,
+      "page_size": 20,
+      "total_items": 4,
+      "total_pages": 1
+    }
+  }
+}
+
