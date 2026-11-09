@@ -1,0 +1,68 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cgpu-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cgpu-scheduler
+  namespace: cgpu-system
+  labels:
+    app.kubernetes.io/name: cgpu-scheduler
+    app.kubernetes.io/part-of: cgpu-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cgpu-scheduler
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cgpu-scheduler
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: "true"
+      tolerations:
+        - key: "node-role.kubernetes.io/control-plane"
+          operator: "Exists"
+          effect: "NoSchedule"
+      containers:
+        - name: scheduler
+          image: cgpu/scheduler:v1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8082
+              name: http
+          env:
+            - name: PORT
+              value: "8082"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8082
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cgpu-scheduler-service
+  namespace: cgpu-system
+  labels:
+    app.kubernetes.io/name: cgpu-scheduler
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8082
+      targetPort: 8082
+      name: http
+  selector:
+    app.kubernetes.io/name: cgpu-scheduler
