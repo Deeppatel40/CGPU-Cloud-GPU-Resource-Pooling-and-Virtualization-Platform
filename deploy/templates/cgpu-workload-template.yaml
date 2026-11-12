@@ -1,0 +1,61 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cgpu-job-${JOB_ID}
+  namespace: default
+  labels:
+    app.kubernetes.io/part-of: cgpu-platform
+    cgpu.io/job-id: "${JOB_ID}"
+    cgpu.io/workload: "${WORKLOAD_ID}"
+  annotations:
+    cgpu.io/allocated-vram-mib: "${ALLOCATED_VRAM_MIB}"
+    cgpu.io/assigned-gpu-id: "${ASSIGNED_GPU_ID}"
+    cgpu.io/assigned-node: "${ASSIGNED_NODE}"
+    cgpu.io/enforcement-mode: "CUDA_INTERCEPTOR"
+spec:
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        cgpu.io/job-id: "${JOB_ID}"
+    spec:
+      restartPolicy: Never
+      nodeName: ${ASSIGNED_NODE}
+      runtimeClassName: nvidia
+      hostNetwork: true
+      dnsPolicy: Default
+      containers:
+        - name: workload
+          image: ${IMAGE_TAG}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CGPU_JOB_ID
+              value: "${JOB_ID}"
+            - name: CGPU_ALLOCATED_VRAM_MIB
+              value: "${ALLOCATED_VRAM_MIB}"
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: "all"
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: "compute,utility"
+            - name: LD_PRELOAD
+              value: "/opt/cgpu/libcgpu_guard.so"
+            - name: CGPU_GUARD_STATUS_FILE
+              value: "/var/run/cgpu/guard/${JOB_ID}.json"
+            - name: CGPU_GUARD_VERBOSE
+              value: "1"
+          # IMPORTANT: Do not inject PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to prevent quota bypass
+          volumeMounts:
+            - name: cgpu-guard
+              mountPath: /opt/cgpu
+              readOnly: true
+            - name: cgpu-status
+              mountPath: /var/run/cgpu/guard
+      volumes:
+        - name: cgpu-guard
+          hostPath:
+            path: /opt/cgpu
+            type: DirectoryOrCreate
+        - name: cgpu-status
+          hostPath:
+            path: /var/run/cgpu/guard
+            type: DirectoryOrCreate

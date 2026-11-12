@@ -28,11 +28,12 @@ type Candidate struct {
 
 // PlacementEngine implements the v1.Scheduler interface with atomic binpacking and queueing.
 type PlacementEngine struct {
-	mu           sync.RWMutex
-	nodes        map[string]*v1.GPUNode
-	allocations  map[string]*v1.ActiveAllocation // jobID -> allocation
-	jobLocations map[string]location             // jobID -> (nodeID, gpuID)
-	pendingQueue []*v1.PlacementRequest
+	mu                sync.RWMutex
+	nodes             map[string]*v1.GPUNode
+	allocations       map[string]*v1.ActiveAllocation // jobID -> allocation
+	jobLocations      map[string]location             // jobID -> (nodeID, gpuID)
+	pendingQueue      []*v1.PlacementRequest
+	contextReserveMiB int
 }
 
 type location struct {
@@ -40,14 +41,22 @@ type location struct {
 	gpuID  string
 }
 
-// NewPlacementEngine constructs a thread-safe scheduler instance.
+// NewPlacementEngine constructs a thread-safe scheduler instance with a default 512 MiB context reserve.
 func NewPlacementEngine() *PlacementEngine {
 	return &PlacementEngine{
-		nodes:        make(map[string]*v1.GPUNode),
-		allocations:  make(map[string]*v1.ActiveAllocation),
-		jobLocations: make(map[string]location),
-		pendingQueue: make([]*v1.PlacementRequest, 0),
+		nodes:             make(map[string]*v1.GPUNode),
+		allocations:       make(map[string]*v1.ActiveAllocation),
+		jobLocations:      make(map[string]location),
+		pendingQueue:      make([]*v1.PlacementRequest, 0),
+		contextReserveMiB: 512, // Driver context overhead reserve (A3 evidence)
 	}
+}
+
+// SetContextReserve sets the reserve amount subtracted from total VRAM for driver overhead.
+func (pe *PlacementEngine) SetContextReserve(reserveMiB int) {
+	pe.mu.Lock()
+	defer pe.mu.Unlock()
+	pe.contextReserveMiB = reserveMiB
 }
 
 // RegisterOrUpdateNode registers or updates a GPU worker node in the scheduler inventory.
@@ -61,7 +70,11 @@ func (pe *PlacementEngine) RegisterOrUpdateNode(node *v1.GPUNode) {
 	for i, g := range node.GPUs {
 		cloned.GPUs[i] = g
 		if cloned.GPUs[i].FreeVRAMMiB == 0 && cloned.GPUs[i].AllocatedVRAMMiB == 0 {
-			cloned.GPUs[i].FreeVRAMMiB = cloned.GPUs[i].TotalVRAMMiB
+			allocatable := cloned.GPUs[i].TotalVRAMMiB - pe.contextReserveMiB
+			if allocatable < 0 {
+				allocatable = 0
+			}
+			cloned.GPUs[i].FreeVRAMMiB = allocatable
 		}
 	}
 	pe.nodes[node.NodeID] = &cloned
@@ -85,7 +98,7 @@ func (pe *PlacementEngine) Schedule(ctx context.Context, req *v1.PlacementReques
 		DecisionTimestamp: now,
 	}
 
-	// 1. Check max hardware capacity across pool
+	// 1. Check max hardware capacity across pool (accounting for driver context reserve)
 	maxSingleGPUVRAM := 0
 	totalOnlineGPUs := 0
 	for _, node := range pe.nodes {
@@ -93,8 +106,9 @@ func (pe *PlacementEngine) Schedule(ctx context.Context, req *v1.PlacementReques
 			for _, gpu := range node.GPUs {
 				if gpu.HealthStatus == v1.HealthHealthy {
 					totalOnlineGPUs++
-					if gpu.TotalVRAMMiB > maxSingleGPUVRAM {
-						maxSingleGPUVRAM = gpu.TotalVRAMMiB
+					allocatable := gpu.TotalVRAMMiB - pe.contextReserveMiB
+					if allocatable > maxSingleGPUVRAM {
+						maxSingleGPUVRAM = allocatable
 					}
 				}
 			}
@@ -270,7 +284,10 @@ func (pe *PlacementEngine) Release(ctx context.Context, jobID string, nodeID str
 	if targetGPU.AllocatedVRAMMiB < 0 {
 		targetGPU.AllocatedVRAMMiB = 0
 	}
-	targetGPU.FreeVRAMMiB = targetGPU.TotalVRAMMiB - targetGPU.AllocatedVRAMMiB
+	targetGPU.FreeVRAMMiB = (targetGPU.TotalVRAMMiB - pe.contextReserveMiB) - targetGPU.AllocatedVRAMMiB
+	if targetGPU.FreeVRAMMiB < 0 {
+		targetGPU.FreeVRAMMiB = 0
+	}
 
 	return nil
 }

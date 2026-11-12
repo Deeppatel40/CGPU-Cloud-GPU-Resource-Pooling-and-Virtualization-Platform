@@ -2,7 +2,7 @@
 
 **Engineer:** Deep Patel ([@Deeppatel40](https://github.com/Deeppatel40))
 **Node:** `cgpu-gpu-worker-4050` — NVIDIA GeForce RTX 4050 Laptop GPU, `GPU-04280514-80a3-1dcf-1c5e-94e374365bef`, 6141 MiB
-**Issue:** A3 (#10), Package 1 — criteria 6 and 7
+**Issue:** A3 (#18), Package 1 — criteria 6 and 7
 **Captured:** 14 November 2026
 
 Both tests run containerized through the `nvidia` runtime, which is the path CGPU uses in production. Reproduce with:
