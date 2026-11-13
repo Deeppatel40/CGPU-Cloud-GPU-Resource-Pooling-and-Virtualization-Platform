@@ -47,9 +47,9 @@ func createTestCluster() *PlacementEngine {
 		},
 		GPUs: []v1.GPUDevice{
 			{
-				GPUID:             "GPU-3050-dummy-uuid",
+				GPUID:             "GPU-7e8adcd7-96a2-1fa6-7936-445a0f2643e6",
 				Index:             0,
-				Name:              "NVIDIA GeForce RTX 3050 GPU",
+				Name:              "NVIDIA GeForce RTX 3050 Laptop GPU",
 				TotalVRAMMiB:      4096,
 				FreeVRAMMiB:       4096,
 				AllocatedVRAMMiB:  0,
@@ -91,7 +91,7 @@ func TestBinpackingBestFit(t *testing.T) {
 		t.Errorf("best-fit failed: expected cgpu-gpu-worker-3050, got %s", decision.AssignedNode)
 	}
 
-	if decision.AssignedGPUID != "GPU-3050-dummy-uuid" {
+	if decision.AssignedGPUID != "GPU-7e8adcd7-96a2-1fa6-7936-445a0f2643e6" {
 		t.Errorf("expected RTX 3050 GPU ID, got %s", decision.AssignedGPUID)
 	}
 }
@@ -199,7 +199,7 @@ func TestCapacityReleaseAndQueueDispatch(t *testing.T) {
 	}
 
 	// Release job-big!
-	err = engine.Release(ctx, "job-big", "worker-rtx3050", "GPU-3050-dummy-uuid", 4000)
+	err = engine.Release(ctx, "job-big", "worker-rtx3050", "GPU-7e8adcd7-96a2-1fa6-7936-445a0f2643e6", 4000)
 	if err != nil {
 		t.Fatalf("release error: %v", err)
 	}

@@ -93,6 +93,33 @@ func bootstrapClusterNodes(engine *scheduler.PlacementEngine) {
 		},
 	})
 	log.Println("[CGPU-Scheduler] Initialized RTX 4050 GPU worker node (6141 MiB pool).")
+
+	// Registered RTX 3050 worker verified in Issue A4
+	engine.RegisterOrUpdateNode(&v1.GPUNode{
+		NodeID:         "cgpu-gpu-worker-3050",
+		KubernetesNode: "cgpu-gpu-worker-3050",
+		Hostname:       "cgpu-gpu-worker-3050",
+		IPAddress:      "10.20.24.36",
+		Status:         v1.NodeOnline,
+		Labels: map[string]string{
+			"cgpu.io/role":      "gpu-worker",
+			"cgpu.io/gpu-model": "rtx3050",
+			"cgpu.io/gpu-vram":  "4096MiB",
+		},
+		GPUs: []v1.GPUDevice{
+			{
+				GPUID:             "GPU-7e8adcd7-96a2-1fa6-7936-445a0f2643e6",
+				Index:             0,
+				Name:              "NVIDIA GeForce RTX 3050 Laptop GPU",
+				TotalVRAMMiB:      4096,
+				FreeVRAMMiB:       4096,
+				AllocatedVRAMMiB:  0,
+				HealthStatus:      v1.HealthHealthy,
+				ActiveAllocations: []v1.ActiveAllocation{},
+			},
+		},
+	})
+	log.Println("[CGPU-Scheduler] Initialized RTX 3050 GPU worker node (4096 MiB pool).")
 }
 
 func (s *SchedulerServer) handleHealthz(w http.ResponseWriter, r *http.Request) {
