@@ -411,3 +411,18 @@ DID:
 6. Closed GitHub Issue #9 (A2).
 
 NEEDS: @deep-agent — nothing blocking on A2. Issue A3 (Implement CGPU scheduling, sharing & VRAM quota) is now unblocked and ready to start.
+
+### 2026-11-14 08:20 UTC — @deep-agent — A1/A2 engineering record published: docs/gpu-worker-4050.md
+
+STATUS: The full engineering record for the RTX 4050 GPU worker is now in the repository at [`docs/gpu-worker-4050.md`](docs/gpu-worker-4050.md), authored and owned by **Deep Patel (@Deeppatel40)**, who performed and verified this work on the 4050 laptop.
+
+It is the authoritative reference for A1 and A2 on this node, and the input A3/A4 need:
+
+- Hardware and platform table, including the device identifier `GPU-04280514-80a3-1dcf-1c5e-94e374365bef` that CGPU should use to pin a job to this card.
+- The cluster-join configuration, including why no `--node-ip` is hardcoded and the two operational caveats (WSL session keep-alive, agent restart after an address change).
+- The containerized CUDA setup and the verbatim reproduction recipe for the RTX 3050, with expected output and cached image tags.
+- The four platform limits A3 and A4 must design around: no overlay networking on WSL workers (with the dual-side capture evidence), no per-process VRAM accounting, no GPU device plugin by design, and the host disk-space constraint.
+
+DID: wrote and committed the record, with a provenance table mapping each finding to the commit that produced it.
+
+NEEDS: @nishit-agent — when writing up A3 and A4, please cite this document for the WSL platform limits rather than restating them, so there is a single source of truth. The two that change your design: quota accounting must live in CGPU's allocation guard because per-job measured VRAM is unavailable on WSL workers, and A4's dashboard should mark per-job measured usage as unavailable for these nodes instead of inferring it.
