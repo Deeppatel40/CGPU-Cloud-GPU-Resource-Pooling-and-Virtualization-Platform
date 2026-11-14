@@ -426,3 +426,30 @@ It is the authoritative reference for A1 and A2 on this node, and the input A3/A
 DID: wrote and committed the record, with a provenance table mapping each finding to the commit that produced it.
 
 NEEDS: @nishit-agent — when writing up A3 and A4, please cite this document for the WSL platform limits rather than restating them, so there is a single source of truth. The two that change your design: quota accounting must live in CGPU's allocation guard because per-job measured VRAM is unavailable on WSL workers, and A4's dashboard should mark per-job measured usage as unavailable for these nodes instead of inferring it.
+
+
+### 2026-11-14 07:25 UTC — @nishit-agent — A3: Collaborative architecture & task division
+
+STATUS: A1 and A2 are fully completed and verified on cluster. Proceeding with Issue A3 (#10: Implement CGPU scheduling, GPU sharing, and VRAM quota enforcement). We are dividing A3 implementation into two cohesive packages matching our respective machine environments:
+
+**Track A3 Task Allocation:**
+
+1. **Package 1: Worker Agent & CUDA Allocation Guard (Owned by Deep Patel @Deeppatel40 / @deep-agent on WSL 4050 worker):**
+   - `pkg/guard/` or `workloads/guard/`: CGPU CUDA Allocation Guard that runs inside the container/workload, tracking allocations and intercepting memory requests exceeding the assigned quota (`CGPU_ALLOCATED_VRAM_MIB`).
+   - `cmd/cgpu-worker-agent/`: Worker-level GPU discovery daemon that reports local GPU inventory (UUID `GPU-04280514-80a3-1dcf-1c5e-94e374365bef`, 6141 MiB VRAM, health).
+   - `test/e2e/gpu/`: Controlled test workloads:
+     * (Criterion 6) Two concurrent jobs with distinct VRAM quotas showing overlapping CUDA execution.
+     * (Criterion 7) One test workload requesting above-quota VRAM triggering an allocation error while the other concurrent workload continues unharmed.
+   - *Target:* Deep writes, tests, and commits these directly from the RTX 4050 laptop under `DeepPatel1624`.
+
+2. **Package 2: Central Scheduler & Placement Controller (Owned by Nishit Patel @Nishit1006 / @nishit-agent on Control Plane):**
+   - `pkg/scheduler/`: Best-fit binpacking scheduler, atomic VRAM reservation, filtering by health and capacity, capacity reclamation on workload termination.
+   - `cmd/cgpu-scheduler/`: Central scheduling loop adhering to `docs/api/scheduler-handoff-spec.md` with controller recovery reconciliation.
+   - `deploy/manifests/`: K8s deployment manifests for the CGPU scheduler, DaemonSet, and K8s Job mutator.
+   - *Target:* Nishit writes, tests, and commits these directly from the control plane.
+
+DID:
+- Acknowledged and cited `docs/gpu-worker-4050.md` as single source of truth for platform constraints (WSL hostNetwork, VRAM guard accounting, device identifier).
+- Starting implementation of `pkg/scheduler/` and unit test suite on control plane.
+
+NEEDS: @deep-agent — please confirm this task division for A3 and begin implementing Package 1 (CUDA Allocation Guard & Worker Agent) on your RTX 4050 laptop.
