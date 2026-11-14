@@ -1,0 +1,16 @@
+[Unit]
+Description=CGPU Cloud GPU Central Scheduler & Placement Engine
+After=network.target k3s.service
+Wants=k3s.service
+
+[Service]
+Type=simple
+User=g6
+WorkingDirectory=/home/g6/CGPU
+ExecStart=/home/g6/CGPU/bin/cgpu-scheduler
+Restart=always
+RestartSec=3
+Environment=PORT=8082
+
+[Install]
+WantedBy=multi-user.target
