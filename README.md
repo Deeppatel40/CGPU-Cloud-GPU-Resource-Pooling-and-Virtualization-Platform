@@ -452,6 +452,24 @@ The evaluation will determine whether GPU resource pooling and virtualization ca
 
 The RTX 4050 record covers Issues A1 (#7) and A2 (#9) for that node: hardware and device identifier, cluster-join configuration, the containerized CUDA setup with a reproduction recipe for the RTX 3050, and the four platform limits A3 and A4 must design around. Cross-machine coordination is logged in [COMMS.md](COMMS.md).
 
+### GPU isolation and sharing (Issue A3, Package 1)
+
+| Component | What it is | Owner |
+| --- | --- | --- |
+| [pkg/guard/](pkg/guard/) | `libcgpu_guard.so` — VRAM quota enforcement by CUDA symbol interposition | Deep Patel ([@Deeppatel40](https://github.com/Deeppatel40)) |
+| [cmd/cgpu-worker-agent/](cmd/cgpu-worker-agent/) | GPU discovery, health and per-job VRAM metrics (`/inventory`, `/healthz`, `/metrics`) | Deep Patel ([@Deeppatel40](https://github.com/Deeppatel40)) |
+| [deploy/](deploy/) | Guard installer DaemonSet and the Kubernetes criterion-6 sharing proof | Deep Patel ([@Deeppatel40](https://github.com/Deeppatel40)) |
+| [test/e2e/gpu/](test/e2e/gpu/) | Six GPU end-to-end tests, including the controlled CUDA workload | Deep Patel ([@Deeppatel40](https://github.com/Deeppatel40)) |
+
+Measured evidence for every A3 criterion, the quota-bypass finding and its mitigation, and the bugs found along the way are in [docs/a3-guard-evidence.md](docs/a3-guard-evidence.md).
+
+Install the guard across GPU nodes and run the Kubernetes sharing proof from the control plane:
+
+```bash
+kubectl label node cgpu-gpu-worker-4050 cgpu.dev/gpu=true
+test/e2e/gpu/k8s_concurrent_share_test.sh
+```
+
 ### Prerequisites
 
 * Linux-based system

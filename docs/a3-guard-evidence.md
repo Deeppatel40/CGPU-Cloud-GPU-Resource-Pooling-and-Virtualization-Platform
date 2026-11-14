@@ -14,6 +14,15 @@ test/e2e/gpu/guard_quota_test.sh        # criterion 7
 test/e2e/gpu/concurrent_share_test.sh   # criterion 6
 ```
 
+Criterion 6 is additionally proven **through Kubernetes** — two Jobs submitted to the API
+server, admitted, scheduled and run under the `nvidia` RuntimeClass. That run needs a
+kubeconfig, which a k3s *agent* does not have, so it is driven from the control plane:
+
+```bash
+kubectl label node cgpu-gpu-worker-4050 cgpu.dev/gpu=true
+test/e2e/gpu/k8s_concurrent_share_test.sh
+```
+
 ---
 
 ## Criterion 7 — quota enforcement
@@ -120,7 +129,130 @@ OVERALL: PASS (criterion 6 satisfied)
 
 Two jobs with different quotas made CUDA progress simultaneously for **12.218 seconds** on the same physical card, identified by UUID in both logs.
 
-An honest note on what "CUDA progress" means here: the probe's activity phase performs repeated host-to-device memory copies with explicit context synchronisation, not kernel execution. Building a kernel needs `nvcc`, which needs the CUDA devel image — blocked by host disk space. The copies are genuine CUDA device work driven through the driver API, and the 99% utilisation confirms the device was busy, but it is memory traffic rather than compute. Worth replacing with a kernel once the demo workload image can be pulled.
+### Upgraded: the same proof with real kernel execution
+
+The run above is honest but weaker than it looks. Its activity phase was repeated host-to-device memory copies, not kernel execution — genuine CUDA device work, and 99% utilisation confirms the device was busy, but it demonstrates a shared *memory system* rather than shared *compute*. "Concurrent sharing" should mean the SMs.
+
+The probe now executes a real kernel: a dependent chain of 20,000 fused multiply-adds per thread over 33.5 million threads, launched through `cuLaunchKernel` from PTX compiled once by `nvcc` and committed as [`cgpu_burn_ptx.h`](../test/e2e/gpu/cgpu_burn_ptx.h). Going through PTX and the driver API rather than linking the CUDA runtime is deliberate: it keeps the probe buildable with nothing but `gcc` on a node with no CUDA toolkit, and keeps it *dynamically* linked to libcuda, which is the property that makes it interposable at all. Linking cudart for `<<<>>>` syntax would have walked the probe straight into the static-linkage trap documented below.
+
+The result is also verified rather than assumed. Each buffer is seeded to exactly `1.0f` and read back, so the log carries the arithmetic:
+
+```text
+[09:41:59.463] [job-neighbour] alloc   128 MiB  OK   total_held=512 MiB
+[09:42:00.996] [job-neighbour] progress t+1s  kernels=8   element0=1.038147 holding=512 MiB
+[09:42:04.906] [job-neighbour] progress t+5s  kernels=38  element0=1.181198 holding=512 MiB
+[09:42:13.947] [job-neighbour] progress t+14s kernels=107 element0=1.510216 holding=512 MiB
+[09:42:14.004] [job-neighbour] activity done mode=kernel launches=107 iters_per_thread=20000
+                               threads=33554432 element0=1.510216 computed=yes
+```
+
+`computed=yes` means the device buffer no longer holds its seed value, so the kernel demonstrably *ran*; a launch that silently failed or never reached the device would leave `element0` at exactly 1.0. Re-running criterion 6 in this mode:
+
+```text
+  job-a active window: 35039.361 -> 35052.628
+  job-b active window: 35039.360 -> 35052.621
+  overlapping duration: 13.260s
+OVERALL: PASS (criterion 6 satisfied - 13.260s of overlapping CUDA progress
+          by two jobs with distinct quotas on GPU-04280514-80a3-1dcf-1c5e-94e374365bef)
+```
+
+**13.260 seconds of overlapping kernel execution**, two jobs, distinct quotas, one physical GPU.
+
+One number in that run is more informative than the overlap itself. Alone, a job sustains ~7.6 kernel launches/second (38 in 5 s). With both jobs running, each sustains ~3.0 (36 in 12 s):
+
+| | launches/s per job | aggregate |
+| --- | --- | --- |
+| one job alone | 7.6 | 7.6 |
+| two jobs sharing | 3.0 | 6.0 |
+
+Each job gets roughly half the throughput while the aggregate is largely preserved. That is the signature of **time-slicing**: the GPU is context-switching between two processes rather than running them side by side on separate SM partitions. It matters for the scheduler, because it means CGPU's sharing is fair-share in time, not spatial isolation — co-located jobs will slow each other down roughly in proportion to how many there are, and a latency-sensitive job cannot be protected by a VRAM quota alone. Hardware partitioning (MIG) is not available on a GeForce card, so this is the sharing model available to us, and the write-up should say so rather than implying stronger isolation than we have.
+
+### Criterion 6 through Kubernetes
+
+Both runs above drive containers through containerd directly, which deliberately takes
+Kubernetes out of the picture so that a failure can only be the GPU, the runtime or the
+guard. But the criterion is about the *platform*, so the proof also has to survive the
+platform: admission, scheduling, the `nvidia` RuntimeClass and the pod sandbox.
+
+That path is [`deploy/cgpu-criterion6-jobs.yaml`](../deploy/cgpu-criterion6-jobs.yaml) — two
+Jobs, each with its own quota, driven by
+[`test/e2e/gpu/k8s_concurrent_share_test.sh`](../test/e2e/gpu/k8s_concurrent_share_test.sh),
+which additionally asserts that both pods landed on the same node and that each executed real
+kernels (`computed=yes`).
+
+The guard reaches the nodes via
+[`deploy/cgpu-guard-installer.yaml`](../deploy/cgpu-guard-installer.yaml), a DaemonSet that
+compiles it in place from a ConfigMap of this repo's sources using the CUDA devel image. That
+answers Package 2's open question of how to ship the guard: the cluster has no registry, so
+baking an image would mean a manual `ctr image import` on every node — exactly the per-node
+step the DaemonSet removes. Generating the ConfigMap from the checkout at apply time also
+means the deployed guard cannot drift from the source, and the in-place build doubles as a
+safety check, because `build.sh` fails if the library would need a newer glibc than the
+workload images carry. A node therefore gets either a loadable guard or none at all.
+
+**Status: authored and validated, not yet executed.** The manifests parse, and their
+contracts are asserted mechanically (RuntimeClass, `LD_PRELOAD`, quota variables, and the
+deliberate absence of `PYTORCH_CUDA_ALLOC_CONF`). The run itself needs a kubeconfig with
+apply rights, and `cgpu-gpu-worker-4050` is a k3s **agent** — it holds no admin credential,
+by design. So this run belongs to whoever holds the control plane; it is handed over in
+[COMMS.md](../COMMS.md) and needs one label first:
+
+```bash
+kubectl label node cgpu-gpu-worker-4050 cgpu.dev/gpu=true
+test/e2e/gpu/k8s_concurrent_share_test.sh
+```
+
+---
+
+## KPI — what the virtualisation layer costs
+
+A quota mechanism that halves GPU throughput is a tax, not a sharing platform, so the cost
+is a KPI in its own right. [`guard_overhead_test.sh`](../test/e2e/gpu/guard_overhead_test.sh)
+measures two paths separately, because the guard's cost is not uniform:
+
+- **the allocation path is interposed** — every allocation passes through a mutex, an
+  addition and a bounds check before reaching the driver. Measured with 512 × 4 MiB
+  allocations, the worst case, where per-call cost is amortised over the least work.
+- **the compute path is not interposed** — kernel launches never touch the guard, so the
+  expectation is no measurable difference. Testing a path where no overhead is predicted is
+  what shows the measurement could detect overhead where it exists.
+
+Each arm is the median of five runs, because a laptop GPU boosts and throttles and the first
+CUDA process in a container pays context creation. The numbers include container start and
+context creation, so they are an **upper bound** on the guard's share rather than an isolated
+measure of it — which is the useful framing, since it is what a job actually experiences.
+
+```text
+==================== allocation path (512 x 4 MiB) ====================
+  without guard: 3.127s   (samples: 4.280 3.011 2.566 3.312 3.127)
+  with guard   : 3.188s   (samples: 3.188 3.285 3.248 3.053 3.131)
+
+==================== compute path (10 s of kernels) ====================
+  without guard: 13.353s  (samples: 13.108 13.353 13.356 13.380 12.814)
+  with guard   : 13.350s  (samples: 13.350 13.429 13.350 13.555 12.969)
+```
+
+| Path | Interposed? | Without guard | With guard | Delta |
+| --- | --- | --- | --- | --- |
+| allocation (512 × 4 MiB) | yes, every call | 3.127 s | 3.188 s | **+2.0%** |
+| compute (10 s of kernels) | no | 13.353 s | 13.350 s | **−0.0%** |
+
+**The guard's cost is not scheduling-relevant.** +2.0% on the allocation-heavy arm is inside
+run-to-run spread — note the 2.566 s and 4.280 s samples in the unguarded arm, a wider spread
+than the difference between the two medians. An earlier run of the same test put the guarded
+arm nominally *faster* (−1.5%), which is the honest way to read "no measurable cost" on a
+boosting laptop GPU rather than claiming a precise figure the measurement cannot support.
+
+The compute arm is the control, and it is the more informative of the two. Kernel launches
+never pass through the guard, so a difference there would mean the measurement was picking up
+something other than interposition. It came out at −0.0%, which says the method is sound and
+that the +2.0% is attributable to the allocation path if it is real at all.
+
+A note on why the test asserts loose bounds (25% and 15%) rather than tight ones: this is a
+shared laptop host with a boosting GPU, and a tight threshold would produce a test that fails
+randomly and then gets ignored, which is worse than no test. What must hold is that the guard
+costs nothing near enough to change a placement decision — and at single-digit percent on the
+allocation path only, it does not.
 
 ---
 
@@ -168,9 +300,9 @@ Capacity virtualisation works: in every case the workload reported `SEES total=5
 
 **Mitigation for the escape, verified:** with `PYTORCH_CUDA_ALLOC_CONF` simply not passed through, the identical 1024 MiB request is refused (2 guard denials). The fix therefore belongs in the scheduler's Job mutator, which must strip or pin that variable. Without it, a job opts out of its quota with one environment variable.
 
-### Two bugs found and fixed along the way
+### Three bugs found and fixed along the way
 
-Both are recorded because they are easy to reintroduce.
+All are recorded because they are easy to reintroduce.
 
 **Double counting.** The driver implements the malloc-style APIs on top of the low-level ones, so a single `cuMemAlloc_v2` from a workload becomes `cuMemCreate` calls inside libcuda. With both interposed, each allocation was charged more than once: one 64 MiB request consumed 128 MiB of quota and the third request was wrongly refused. Fixed with a per-thread re-entrancy counter — only the outermost call accounts, nested driver-internal calls pass through already charged.
 
@@ -183,6 +315,14 @@ Both are recorded because they are easy to reintroduce.
 ```
 
 So `CGPU_GUARD_HOOK_DLSYM` defaults to off, and the `expandable_segments` gap is handled by environment sanitisation in the scheduler instead. Enabling the hook needs a way to tell driver-internal lookups from workload ones.
+
+**CRLF line endings silently broke three e2e tests.** The repository had `core.autocrlf=true` on the Windows side and no `.gitattributes`, so git checked the shell scripts out with CRLF endings. On a Linux node every one of them then died at the shebang:
+
+```text
+  env: 'bash\r': No such file or directory
+```
+
+This mattered more than a cosmetic annoyance: the failures appeared in a regression run immediately after a change to the probe, so they looked exactly like a regression in the code under test. The real cause was a checkout artefact that depended on each developer's local git configuration, which means it could reproduce on one machine and not another. Fixed by committing a `.gitattributes` that pins LF for everything Linux executes (and CRLF for `.ps1`/`.bat`), then `git add --renormalize`. Worth knowing for the whole team, not just this node.
 
 ---
 
@@ -232,9 +372,12 @@ cgpu_job_vram_used_bytes, cgpu_job_vram_peak_bytes, cgpu_job_vram_quota_bytes, c
 | `concurrent_share_test.sh` | 6 | PASS |
 | `pytorch_coverage_test.sh` | 5 | PASS |
 | `bypass_attempt_test.sh` | 5 | PASS, with the `expandable_segments` gap recorded and its mitigation verified |
+| `guard_overhead_test.sh` | KPI | PASS |
+| `k8s_concurrent_share_test.sh` | 6, via Kubernetes | Authored and validated; needs a control-plane kubeconfig to run |
+
+Criteria 6 and 7 are both now proven with real kernel execution rather than memory traffic.
 
 ## Still open
 
 - **`cuMemGetInfo` is not virtualised for the `expandable_segments` path**, because that path bypasses the wrappers entirely. Covered by the environment-sanitisation mitigation, not by the guard.
-- **Overlapping "CUDA progress" is memory traffic, not kernel execution.** The probe performs repeated host-to-device copies with explicit synchronisation; 97–99% device utilisation confirms the GPU was busy. Building a kernel needs `nvcc` from the CUDA devel image. Worth upgrading now that host disk space has been freed.
 - **Approved-workload list.** Both limitations above point the same way: CGPU should only accept workloads whose linkage and allocator configuration have been verified. That is a scheduler decision (Package 2).

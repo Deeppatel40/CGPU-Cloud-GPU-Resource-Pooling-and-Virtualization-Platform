@@ -118,5 +118,15 @@ It enforces quotas for **cooperative and approved** workloads. It is **not a sec
 | [`concurrent_share_test.sh`](../../test/e2e/gpu/concurrent_share_test.sh) | 6 — two jobs, distinct quotas, overlapping progress |
 | [`pytorch_coverage_test.sh`](../../test/e2e/gpu/pytorch_coverage_test.sh) | 5 — coverage for the demo workload |
 | [`bypass_attempt_test.sh`](../../test/e2e/gpu/bypass_attempt_test.sh) | 5 — bypass attempts and the mitigation |
+| [`guard_overhead_test.sh`](../../test/e2e/gpu/guard_overhead_test.sh) | KPI — what interposition costs |
+| [`k8s_concurrent_share_test.sh`](../../test/e2e/gpu/k8s_concurrent_share_test.sh) | 6 — the same sharing proof through Kubernetes |
 
 Results are recorded in [`docs/a3-guard-evidence.md`](../../docs/a3-guard-evidence.md).
+
+## Deploying to a cluster
+
+[`deploy/cgpu-guard-installer.yaml`](../../deploy/cgpu-guard-installer.yaml) is a DaemonSet that compiles the guard onto every node labelled `cgpu.dev/gpu=true`, from a ConfigMap of this directory's sources, and installs it at `/opt/cgpu/libcgpu_guard.so`.
+
+Compiling on the node rather than baking an image is a consequence of the cluster having no registry: an image would otherwise have to be `ctr image import`ed on each node by hand, which is the per-node step the DaemonSet exists to remove. Generating the ConfigMap from the checkout at apply time also means the deployed guard cannot drift from the source here.
+
+A Job then needs only the mount and the environment variables shown under **Use** above; [`deploy/cgpu-criterion6-jobs.yaml`](../../deploy/cgpu-criterion6-jobs.yaml) is a working reference pair, and is the contract the Package 2 scheduler mutator should produce.

@@ -1,0 +1,186 @@
+# A3 criterion 6 - concurrent GPU sharing, proven through Kubernetes
+# =============================================================================
+# Two independent Kubernetes Jobs, scheduled onto one physical GPU, each under its own VRAM
+# quota, both executing CUDA kernels at the same time.
+#
+# Owner / engineer: Deep Patel (@Deeppatel40)
+#
+# Why this exists alongside test/e2e/gpu/concurrent_share_test.sh: that script proves the
+# sharing works by launching containers directly through containerd, which takes Kubernetes
+# out of the picture. The criterion is about the platform, so the proof has to go through the
+# platform - admission, scheduling, the nvidia RuntimeClass, and the pod sandbox. This is
+# that run. The analysis is identical and lives in k8s_concurrent_share_test.sh.
+#
+# This pair is also the reference for what the Package 2 scheduler mutator must inject into a
+# submitted Job. Everything CGPU-specific is in one place per container:
+#
+#   LD_PRELOAD=/opt/cgpu/libcgpu_guard.so   the guard, installed by the DaemonSet
+#   CGPU_ALLOCATED_VRAM_MIB=<reservation>   the quota the scheduler decided
+#   CGPU_JOB_ID=<job identity>              what per-job usage is attributed to
+#   CGPU_GUARD_STATUS_FILE=<path>           optional; the worker agent exports it
+#   the two hostPath mounts                 guard binary + (here) the test workload
+#
+# The mutator must ALSO strip or pin PYTORCH_CUDA_ALLOC_CONF on submitted Jobs. A job that
+# sets expandable_segments:True allocates through the virtual memory API, which the guard
+# cannot interpose, and escapes its quota entirely - measured on this node: 1040 MiB reserved
+# against a 512 MiB quota, zero denials. Note its deliberate absence below.
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cgpu-share-a
+  namespace: cgpu-system
+  labels:
+    app.kubernetes.io/part-of: cgpu
+    cgpu.dev/test: criterion6
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 1800
+  template:
+    metadata:
+      labels:
+        cgpu.dev/test: criterion6
+        cgpu.dev/job: cgpu-share-a
+    spec:
+      restartPolicy: Never
+      runtimeClassName: nvidia
+      nodeSelector:
+        cgpu.dev/gpu: "true"
+      automountServiceAccountToken: false
+      containers:
+        - name: workload
+          image: docker.io/nvidia/cuda:12.6.2-base-ubuntu24.04
+          imagePullPolicy: IfNotPresent
+          command: ["/opt/cgpu-test/cgpu_alloc_probe"]
+          args:
+            - --label
+            - cgpu-share-a
+            - --target-mib
+            - "512"
+            - --chunk-mib
+            - "128"
+            - --seconds
+            - "20"
+          env:
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: all
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: compute,utility
+            # ---- injected by the CGPU scheduler in Package 2 ----
+            - name: LD_PRELOAD
+              value: /opt/cgpu/libcgpu_guard.so
+            - name: CGPU_ALLOCATED_VRAM_MIB
+              value: "1024"
+            - name: CGPU_JOB_ID
+              value: cgpu-share-a
+            - name: CGPU_GUARD_STATUS_FILE
+              value: /var/run/cgpu/guard/cgpu-share-a.json
+          volumeMounts:
+            - name: cgpu-guard
+              mountPath: /opt/cgpu
+              readOnly: true
+            - name: cgpu-test
+              mountPath: /opt/cgpu-test
+              readOnly: true
+            - name: cgpu-guard-status
+              mountPath: /var/run/cgpu/guard
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+      volumes:
+        - name: cgpu-guard
+          hostPath:
+            path: /opt/cgpu
+            type: Directory
+        - name: cgpu-test
+          hostPath:
+            path: /opt/cgpu-test
+            type: Directory
+        # Per-job usage is written here and read by cmd/cgpu-worker-agent for /metrics.
+        - name: cgpu-guard-status
+          hostPath:
+            path: /var/run/cgpu/guard
+            type: DirectoryOrCreate
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cgpu-share-b
+  namespace: cgpu-system
+  labels:
+    app.kubernetes.io/part-of: cgpu
+    cgpu.dev/test: criterion6
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 1800
+  template:
+    metadata:
+      labels:
+        cgpu.dev/test: criterion6
+        cgpu.dev/job: cgpu-share-b
+    spec:
+      restartPolicy: Never
+      runtimeClassName: nvidia
+      nodeSelector:
+        cgpu.dev/gpu: "true"
+      automountServiceAccountToken: false
+      containers:
+        - name: workload
+          image: docker.io/nvidia/cuda:12.6.2-base-ubuntu24.04
+          imagePullPolicy: IfNotPresent
+          command: ["/opt/cgpu-test/cgpu_alloc_probe"]
+          args:
+            - --label
+            - cgpu-share-b
+            - --target-mib
+            - "512"
+            - --chunk-mib
+            - "128"
+            - --seconds
+            - "20"
+          env:
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: all
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: compute,utility
+            - name: LD_PRELOAD
+              value: /opt/cgpu/libcgpu_guard.so
+            - name: CGPU_ALLOCATED_VRAM_MIB
+              value: "1024"
+            - name: CGPU_JOB_ID
+              value: cgpu-share-b
+            - name: CGPU_GUARD_STATUS_FILE
+              value: /var/run/cgpu/guard/cgpu-share-b.json
+          volumeMounts:
+            - name: cgpu-guard
+              mountPath: /opt/cgpu
+              readOnly: true
+            - name: cgpu-test
+              mountPath: /opt/cgpu-test
+              readOnly: true
+            - name: cgpu-guard-status
+              mountPath: /var/run/cgpu/guard
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+      volumes:
+        - name: cgpu-guard
+          hostPath:
+            path: /opt/cgpu
+            type: Directory
+        - name: cgpu-test
+          hostPath:
+            path: /opt/cgpu-test
+            type: Directory
+        - name: cgpu-guard-status
+          hostPath:
+            path: /var/run/cgpu/guard
+            type: DirectoryOrCreate

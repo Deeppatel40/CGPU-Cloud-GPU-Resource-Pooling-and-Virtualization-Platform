@@ -1,0 +1,137 @@
+# CGPU guard installer
+# =============================================================================
+# Ships the CGPU allocation guard (and the e2e test probe) to every GPU node, so a Job can
+# mount the guard at a known hostPath and have its VRAM quota enforced.
+#
+# Owner / engineer: Deep Patel (@Deeppatel40) - see docs/gpu-worker-4050.md
+#
+# Design note - why compile on the node instead of baking an image:
+#   The cluster has no container registry. Baking the guard into an image would mean every
+#   node pulling from a registry we do not run, or a manual `ctr image import` on each node,
+#   which is exactly the per-node manual step this DaemonSet exists to remove. Instead the
+#   guard's source travels as a ConfigMap and is compiled in place by the CUDA devel image,
+#   which already carries gcc. The result is one artefact per node at a stable hostPath.
+#
+#   The compile is also a useful guard-rail: build.sh fails if the resulting library needs a
+#   newer glibc than the workload images provide (2.35), so a node either gets a loadable
+#   guard or none at all - it can never get a silently unloadable one.
+#
+# The ConfigMap is NOT committed here. It is generated from the real sources at apply time by
+# test/e2e/gpu/k8s_concurrent_share_test.sh, so the deployed guard can never drift from the
+# source in this repo. To apply by hand:
+#
+#   kubectl create namespace cgpu-system
+#   kubectl -n cgpu-system create configmap cgpu-guard-src \
+#       --from-file=pkg/guard/cgpu_guard.c \
+#       --from-file=pkg/guard/build.sh \
+#       --from-file=test/e2e/gpu/cgpu_alloc_probe.c \
+#       --from-file=test/e2e/gpu/cgpu_burn_ptx.h \
+#       --from-file=probe_build.sh=test/e2e/gpu/build.sh
+#   kubectl label node <gpu-node> cgpu.dev/gpu=true
+#   kubectl apply -f deploy/cgpu-guard-installer.yaml
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cgpu-system
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: cgpu-guard-installer
+  namespace: cgpu-system
+  labels:
+    app.kubernetes.io/name: cgpu-guard-installer
+    app.kubernetes.io/part-of: cgpu
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cgpu-guard-installer
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cgpu-guard-installer
+        app.kubernetes.io/part-of: cgpu
+    spec:
+      # GPU nodes only. The guard is meaningless on a CPU worker and the devel image is large.
+      nodeSelector:
+        cgpu.dev/gpu: "true"
+      # The installer only writes to a hostPath; it needs no cluster API access.
+      automountServiceAccountToken: false
+      restartPolicy: Always
+      containers:
+        - name: installer
+          # Carries gcc and the libcuda stub needed to link the probe. No CUDA device is
+          # requested: this container compiles, it does not run GPU work.
+          image: docker.io/nvidia/cuda:12.6.2-devel-ubuntu24.04
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            # Needs to write into the host directory it installs to; no device access.
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              echo "[cgpu] installing guard on $NODE_NAME"
+              work=$(mktemp -d)
+              cp /src/* "$work/"
+              cd "$work"
+              chmod +x build.sh probe_build.sh
+
+              echo "[cgpu] building guard"
+              ./build.sh /host/cgpu
+
+              echo "[cgpu] building e2e probe"
+              # The probe links libcuda. This image has no real driver, only the stub at
+              # /usr/local/cuda/lib64/stubs - which is correct and sufficient: the stub
+              # carries SONAME libcuda.so.1 (verified), so the built binary records a
+              # dependency on libcuda.so.1 and the real driver injected by the nvidia
+              # runtime satisfies it at run time. Linking a stub whose SONAME was plain
+              # libcuda.so would produce a binary that cannot start in a Job.
+              ./probe_build.sh /host/cgpu-test
+
+              echo "[cgpu] installed:"
+              ls -l /host/cgpu/libcgpu_guard.so /host/cgpu-test/cgpu_alloc_probe
+
+              # Hold the pod Ready so the DaemonSet reports installation state rather than
+              # churning through CrashLoopBackOff/Completed. A restart re-installs, which is
+              # what we want after a guard source change.
+              echo "[cgpu] install complete; holding"
+              sleep infinity
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            # Keep the compiled guard loadable in the Ubuntu 22.04 workload images.
+            - name: CGPU_TARGET_GLIBC
+              value: "2.35"
+          volumeMounts:
+            - name: src
+              mountPath: /src
+              readOnly: true
+            - name: host-opt
+              mountPath: /host
+          readinessProbe:
+            exec:
+              command: ["test", "-f", "/host/cgpu/libcgpu_guard.so"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+      volumes:
+        - name: src
+          configMap:
+            name: cgpu-guard-src
+        - name: host-opt
+          hostPath:
+            path: /opt
+            type: Directory
