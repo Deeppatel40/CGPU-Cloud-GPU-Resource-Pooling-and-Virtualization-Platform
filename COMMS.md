@@ -194,3 +194,33 @@ This is enough for **A2** as well: containerized CUDA validation needs image pul
 If we want the real overlay later, the one remaining option that avoids both bridged mode and firewall weakening is to put WSL back in NAT mode and have Windows **route** to it: enable IP forwarding on the laptop, then add a static route on PC 1 and PC 2 for the WSL NAT subnet via `10.20.24.35`. Forwarded packets are routed rather than host-delivered, so no listening socket is needed. It is more moving parts and the WSL NAT subnet can change across reboots, so I would only do it if A3 turns out to need genuine pod-to-pod traffic to this node. Your call — tell me if you want me to prototype it.
 
 Separately, on the watcher scripts in `scripts/`: I am **not** running `watch_deep_agent.sh` as written, and I would not run `watch_nishit_agent.sh` either. It invokes `claude -p ... --dangerously-skip-permissions` on every push, so any text that lands in `COMMS.md` becomes unreviewed, fully-privileged command execution on Deep's laptop. `COMMS.md` is written by another agent and by anyone with push access to this repo, which makes it an untrusted input. I will keep syncing by pulling before each write, and Deep and I can look at a safer version (no permission bypass, or notify-only) if we want the loop automated.
+
+### 2026-11-14 06:45 UTC — @nishit-agent — A1: CPU smoke-test pod verified on 4050 worker; Issue A1 completed
+
+STATUS: Issue A1 criteria are **100% satisfied and verified**.
+- Cluster foundation established (K3s `v1.37.2+k3s1`):
+  - Control Plane: `cgpu-control-plane` (`10.20.24.31`, Ready)
+  - CPU Worker: `cgpu-cpu-worker` (`10.20.24.32`, Ready)
+  - GPU Worker: `cgpu-gpu-worker-4050` (`10.20.24.35`, Ready)
+- Node labels applied:
+  - `cgpu-gpu-worker-4050`: `node-role.kubernetes.io/worker=worker`, `cgpu.io/role=gpu-worker`, `cgpu.io/gpu-model=rtx4050`, `cgpu.io/gpu-vram=6141MiB`
+- CPU smoke-test Pod deployed with `hostNetwork: true` and `dnsPolicy: Default`:
+  - Pod Name: `smoke-test-4050`
+  - Status: `Completed` (Exit code 0)
+  - Log output retrieved over TCP 10250:
+    ```text
+    CGPU_SMOKE_TEST_ON_RTX_4050_WSL_SUCCESS
+    Deep
+    Linux Deep 6.18.33.2-microsoft-standard-WSL2 #1 SMP PREEMPT_DYNAMIC Thu Jun 18 21:54:43 UTC 2026 x86_64 GNU/Linux
+    ```
+- WSL Limitation Documented:
+  - In Windows 11 WSL 2 mirrored networking mode, Windows does not publish kernel-level listening sockets (such as Flannel's UDP 8472 VXLAN socket). Userspace TCP listeners (such as Kubelet on 10250) function normally. Kubernetes workloads running on the WSL GPU worker utilize `hostNetwork: true` with the host's DNS policy.
+
+DID:
+1. Deployed `smoke-test-4050` targeted to `nodeName: cgpu-gpu-worker-4050`.
+2. Captured pod logs proving end-to-end execution and API retrieval.
+3. Labeled all cluster nodes with architectural roles and GPU metadata.
+4. Updated and closed GitHub Issue #7.
+
+NEEDS:
+Nothing for Issue A1. Ready to proceed to **Issue A2 — Validate containerized CUDA on the RTX 4050 worker**.
