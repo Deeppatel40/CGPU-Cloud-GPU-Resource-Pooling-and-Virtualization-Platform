@@ -85,13 +85,14 @@ type Inventory struct {
 const agentVersion = "0.1.0"
 
 var (
-	flagListen     = flag.String("listen", ":9400", "address to serve the HTTP API on")
-	flagInterval   = flag.Duration("interval", 10*time.Second, "how often to refresh GPU inventory")
-	flagReserveMiB = flag.Int64("reserve-mib", 512, "VRAM held back from allocatable for CUDA context overhead")
-	flagStatusDir  = flag.String("guard-status-dir", "/var/run/cgpu/guard", "directory holding CGPU guard status files")
-	flagNodeName   = flag.String("node-name", "", "worker identity; defaults to $CGPU_NODE_NAME, then hostname")
-	flagSMI        = flag.String("nvidia-smi", "nvidia-smi", "path to nvidia-smi")
-	flagOnce       = flag.Bool("once", false, "print inventory as JSON once and exit (no server)")
+	flagListen      = flag.String("listen", ":9400", "address to serve the HTTP API on")
+	flagInterval    = flag.Duration("interval", 10*time.Second, "how often to refresh GPU inventory")
+	flagReserveMiB  = flag.Int64("reserve-mib", 512, "VRAM held back from allocatable for CUDA context overhead")
+	flagStatusDir   = flag.String("guard-status-dir", "/var/run/cgpu/guard", "directory holding CGPU guard status files")
+	flagStatusStale = flag.Duration("guard-status-stale", 2*time.Minute, "ignore guard status files not updated within this window (0 disables the check)")
+	flagNodeName    = flag.String("node-name", "", "worker identity; defaults to $CGPU_NODE_NAME, then hostname")
+	flagSMI         = flag.String("nvidia-smi", "nvidia-smi", "path to nvidia-smi")
+	flagOnce        = flag.Bool("once", false, "print inventory as JSON once and exit (no server)")
 )
 
 type agent struct {
@@ -255,6 +256,22 @@ func (a *agent) readGuardStatus() []JobUsage {
 	for _, p := range paths {
 		st, err := os.Stat(p)
 		if err != nil || st.IsDir() {
+			continue
+		}
+		// Skip status files whose writer has stopped updating them.
+		//
+		// The guard unlinks its own file on normal exit, but a job killed by SIGKILL or a
+		// container torn down mid-run never runs a destructor and leaves its last reading
+		// behind. Trusting those files makes finished jobs look live: a stale file was once
+		// exported as 256 MiB in use two hours after the process died, which would show as
+		// phantom VRAM on A4's dashboard and double-count memory nobody holds.
+		//
+		// mtime is the liveness signal because the guard rewrites the file on every
+		// allocation and free. A job that is running but allocating nothing will stop
+		// advancing its mtime too - so the window must stay comfortably longer than a
+		// plausible quiet period, and is a flag so it can be tuned per deployment rather
+		// than guessed here.
+		if *flagStatusStale > 0 && time.Since(st.ModTime()) > *flagStatusStale {
 			continue
 		}
 		b, err := os.ReadFile(p)

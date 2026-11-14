@@ -44,6 +44,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 /* ---- CUDA constants, declared locally so no toolkit headers are needed ---------------- */
 #define CGPU_SUCCESS 0
@@ -188,6 +189,24 @@ __attribute__((constructor)) static void cgpu_on_load(void)
 {
     pthread_once(&g_once, cgpu_init);
     cgpu_log("info", "guard library loaded via LD_PRELOAD");
+}
+
+/*
+ * Remove our status file when the process exits normally.
+ *
+ * Without this, a finished job's last status reading stays on disk forever and the worker
+ * agent keeps reporting it as an active job holding VRAM. Observed in practice: a status
+ * file from a test run two hours earlier was still being exported as 256 MiB in use, which
+ * would have A4's dashboard showing phantom usage and any capacity calculation reading it
+ * double-counting memory that nobody holds.
+ *
+ * This covers normal exit only. A job killed by SIGKILL, or one whose container is torn
+ * down, never runs a destructor - so the agent must ALSO treat a status file whose mtime has
+ * stopped advancing as stale. Both halves are needed; neither alone is sufficient.
+ */
+__attribute__((destructor)) static void cgpu_on_unload(void)
+{
+    if (g_status_path) unlink(g_status_path);
 }
 
 static size_t cgpu_hash(void *p)

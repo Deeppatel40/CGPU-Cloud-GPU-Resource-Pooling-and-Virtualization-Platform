@@ -300,9 +300,32 @@ Capacity virtualisation works: in every case the workload reported `SEES total=5
 
 **Mitigation for the escape, verified:** with `PYTORCH_CUDA_ALLOC_CONF` simply not passed through, the identical 1024 MiB request is refused (2 guard denials). The fix therefore belongs in the scheduler's Job mutator, which must strip or pin that variable. Without it, a job opts out of its quota with one environment variable.
 
-### Three bugs found and fixed along the way
+### Four bugs found and fixed along the way
 
 All are recorded because they are easy to reintroduce.
+
+**Finished jobs were reported as live, holding VRAM.** Found while re-verifying the worker
+agent against the guard. A status file written by a test run at 07:55 was still being
+exported two hours later:
+
+```text
+cgpu_gpu_active_jobs{node="Deep"} 1
+cgpu_job_vram_used_bytes{node="Deep",job_id="demo-job"} 268435456
+```
+
+Nothing ever removed the file, so every job that had ever run accumulated as a permanent
+phantom: A4's dashboard would show VRAM in use that nobody holds, and any capacity
+calculation reading these numbers would under-report free memory and refuse placements it
+should accept. Fixed on both sides, because neither half is sufficient alone:
+
+- the guard now `unlink()`s its own status file from a destructor on normal exit;
+- the agent ignores a file whose mtime has stopped advancing (`-guard-status-stale`,
+  default 2 minutes), because a job killed by `SIGKILL` or a container torn down mid-run
+  never runs a destructor.
+
+Verified: with a live job running and a two-hour-old file beside it, the agent reports only
+the live job; after the live job exits its file is gone, and with only the stale file left
+`cgpu_gpu_active_jobs` reads `0` with no per-job series at all.
 
 **Double counting.** The driver implements the malloc-style APIs on top of the low-level ones, so a single `cuMemAlloc_v2` from a workload becomes `cuMemCreate` calls inside libcuda. With both interposed, each allocation was charged more than once: one 64 MiB request consumed 128 MiB of quota and the third request was wrongly refused. Fixed with a per-thread re-entrancy counter — only the outermost call accounts, nested driver-internal calls pass through already charged.
 
