@@ -29,6 +29,9 @@
 
 ---
 
+> [!IMPORTANT]
+> 📖 **CSE540 Presentation & Demonstration Guide**: Read the complete zero-to-hero project briefing, architecture map, live demonstration runbook, and emergency troubleshooting manual in [**`PROJECT_GUIDE_AND_DEMO_PLAYBOOK.md`**](PROJECT_GUIDE_AND_DEMO_PLAYBOOK.md).
+
 ## Overview
 
 **CGPU (Cloud GPU)** is a cloud-based **GPU-as-a-Service (GPUaaS)** platform designed to efficiently manage, virtualize, and share GPU resources across multiple computing nodes.
