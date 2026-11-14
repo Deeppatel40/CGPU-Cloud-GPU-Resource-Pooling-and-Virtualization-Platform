@@ -34,6 +34,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", server.handleHealthz)
+	mux.HandleFunc("/metrics", server.handleMetrics)
 	mux.HandleFunc("/api/v1/schedule", server.handleSchedule)
 	mux.HandleFunc("/api/v1/release", server.handleRelease)
 	mux.HandleFunc("/api/v1/pool", server.handlePoolCapacity)
@@ -120,6 +121,54 @@ func bootstrapClusterNodes(engine *scheduler.PlacementEngine) {
 		},
 	})
 	log.Println("[CGPU-Scheduler] Initialized RTX 3050 GPU worker node (4096 MiB pool).")
+}
+
+func (s *SchedulerServer) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	cap, err := s.engine.GetPoolCapacity(r.Context())
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get capacity: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	fmt.Fprintf(w, "# HELP cgpu_pool_total_nodes Total number of GPU nodes in CGPU pool\n")
+	fmt.Fprintf(w, "# TYPE cgpu_pool_total_nodes gauge\n")
+	fmt.Fprintf(w, "cgpu_pool_total_nodes %d\n\n", cap.TotalNodes)
+
+	fmt.Fprintf(w, "# HELP cgpu_pool_total_gpus Total number of GPUs in CGPU pool\n")
+	fmt.Fprintf(w, "# TYPE cgpu_pool_total_gpus gauge\n")
+	fmt.Fprintf(w, "cgpu_pool_total_gpus %d\n\n", cap.TotalGPUs)
+
+	fmt.Fprintf(w, "# HELP cgpu_pool_vram_total_mib Total physical VRAM across all GPUs in MiB\n")
+	fmt.Fprintf(w, "# TYPE cgpu_pool_vram_total_mib gauge\n")
+	fmt.Fprintf(w, "cgpu_pool_vram_total_mib %d\n\n", cap.AggregateVRAMMiB)
+
+	fmt.Fprintf(w, "# HELP cgpu_pool_vram_allocated_mib Currently allocated VRAM across all GPUs in MiB\n")
+	fmt.Fprintf(w, "# TYPE cgpu_pool_vram_allocated_mib gauge\n")
+	fmt.Fprintf(w, "cgpu_pool_vram_allocated_mib %d\n\n", cap.AllocatedVRAMMiB)
+
+	fmt.Fprintf(w, "# HELP cgpu_pool_vram_free_mib Available allocatable VRAM across all GPUs in MiB\n")
+	fmt.Fprintf(w, "# TYPE cgpu_pool_vram_free_mib gauge\n")
+	fmt.Fprintf(w, "cgpu_pool_vram_free_mib %d\n\n", cap.FreeVRAMMiB)
+
+	fmt.Fprintf(w, "# HELP cgpu_device_vram_total_mib Total physical VRAM per GPU device in MiB\n")
+	fmt.Fprintf(w, "# TYPE cgpu_device_vram_total_mib gauge\n")
+	fmt.Fprintf(w, "cgpu_device_vram_total_mib{node=\"cgpu-gpu-worker-4050\",gpu_id=\"GPU-04280514-80a3-1dcf-1c5e-94e374365bef\",model=\"rtx4050\"} 6141\n")
+	fmt.Fprintf(w, "cgpu_device_vram_total_mib{node=\"cgpu-gpu-worker-3050\",gpu_id=\"GPU-7e8adcd7-96a2-1fa6-7936-445a0f2643e6\",model=\"rtx3050\"} 4096\n\n")
+
+	fmt.Fprintf(w, "# HELP cgpu_device_vram_allocatable_mib Allocatable VRAM per GPU device after driver context overhead in MiB\n")
+	fmt.Fprintf(w, "# TYPE cgpu_device_vram_allocatable_mib gauge\n")
+	fmt.Fprintf(w, "cgpu_device_vram_allocatable_mib{node=\"cgpu-gpu-worker-4050\",gpu_id=\"GPU-04280514-80a3-1dcf-1c5e-94e374365bef\",model=\"rtx4050\"} 5629\n")
+	fmt.Fprintf(w, "cgpu_device_vram_allocatable_mib{node=\"cgpu-gpu-worker-3050\",gpu_id=\"GPU-7e8adcd7-96a2-1fa6-7936-445a0f2643e6\",model=\"rtx3050\"} 3584\n\n")
+
+	fmt.Fprintf(w, "# HELP cgpu_device_driver_reserve_mib Reserved VRAM for driver context overhead per GPU device in MiB\n")
+	fmt.Fprintf(w, "# TYPE cgpu_device_driver_reserve_mib gauge\n")
+	fmt.Fprintf(w, "cgpu_device_driver_reserve_mib{node=\"cgpu-gpu-worker-4050\",gpu_id=\"GPU-04280514-80a3-1dcf-1c5e-94e374365bef\"} 512\n")
+	fmt.Fprintf(w, "cgpu_device_driver_reserve_mib{node=\"cgpu-gpu-worker-3050\",gpu_id=\"GPU-7e8adcd7-96a2-1fa6-7936-445a0f2643e6\"} 512\n\n")
+
+	fmt.Fprintf(w, "# HELP cgpu_pending_queue_length Number of queued workloads waiting for eligible GPU capacity\n")
+	fmt.Fprintf(w, "# TYPE cgpu_pending_queue_length gauge\n")
+	fmt.Fprintf(w, "cgpu_pending_queue_length %d\n", s.engine.GetPendingQueueLength())
 }
 
 func (s *SchedulerServer) handleHealthz(w http.ResponseWriter, r *http.Request) {
