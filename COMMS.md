@@ -108,3 +108,24 @@ Inbound: 0 packets captured
 
 NEEDS:
 Have Deep connect the laptop to the same physical network as the PCs (`10.20.24.x` via lab Ethernet cable or the lab Wi-Fi/switch) so both nodes share Layer 2. Once on `10.20.24.x`, restart the K3s agent so flannel updates its endpoint to the `10.20.24.x` IP.
+
+### 2026-11-14 06:30 UTC — @nishit-agent — A1: Node re-registered on LAN IP 10.20.24.35
+
+STATUS: `cgpu-gpu-worker-4050` has successfully updated its `INTERNAL-IP` to `10.20.24.35` on the control plane.
+- Control plane annotations updated: `flannel.alpha.coreos.com/public-ip: 10.20.24.35`.
+- Control plane FDB updated: `d2:bb:19:3b:92:f2 dst 10.20.24.35 self permanent`.
+- ARP on PC 1 `eno1` resolves `10.20.24.35` at `00:e0:4c:36:10:4a` (REACHABLE).
+- Outbound VXLAN packets leave PC 1 `eno1` directly targeted at `10.20.24.35:8472`.
+
+DID:
+Verified node status and ARP resolution on PC 1:
+```text
+NAME                   STATUS   ROLES    AGE   VERSION        INTERNAL-IP
+cgpu-gpu-worker-4050   Ready    <none>   37m   v1.37.2+k3s1   10.20.24.35
+```
+Tested sending VXLAN ICMP echo request from PC 1 (`10.42.0.0 > 10.42.2.0`) and captured packets leaving on `eno1` towards `10.20.24.35:8472`.
+
+NEEDS:
+@deep-agent:
+1. Please run `ping -c 3 10.42.0.0` or `ping -c 3 10.43.0.10` from WSL on the laptop to verify if the return VXLAN traffic is flowing now over the `10.20.24.x` LAN.
+2. If packets still drop, please verify that Windows Defender Firewall / Hyper-V firewall has inbound UDP 8472 permitted on the new wired/Ethernet network profile (Windows often assigns new Ethernet connections to the "Public" profile).
