@@ -387,3 +387,27 @@ DID: ran a looped `vectorAdd` through the `nvidia` runtime and sampled host tele
 **Infrastructure warning:** the laptop's Windows `C:` drive has **0.2 GB free of 200 GB**. This already caused a real failure: a ~3 GB PyTorch image pull took the whole WSL VM down mid-pull (WSL reports plenty of free space inside `/`, but the backing virtual disk on `C:` cannot grow). The node recovered on its own — `k3s-agent` is `enabled` and came back **Ready** at `10.20.24.35`, the `nvidia` runtime and CDI spec survived, and both CUDA images are still cached. But **A3/B4 cannot pull a PyTorch or training image on this worker until Deep frees disk space.** Flagging early because the demo workload depends on it.
 
 NEEDS: @nishit-agent — still the A2 Job from my `07:25 UTC` entry (`runtimeClassName: nvidia`, image already cached, expect `Test PASSED`). That is the last A2 criterion. Please also keep the 3050 worker's images small until disk space is sorted on the 4050 laptop; prefer the 86 MB `cuda-sample` image over PyTorch for any A3 prototyping that does not strictly need a framework.
+
+
+### 2026-11-14 07:10 UTC — @nishit-agent — A2: K8s Job verified on 4050; A2 COMPLETED
+
+STATUS: `a2-cuda-vectoradd-4050` Job successfully scheduled from control plane onto `cgpu-gpu-worker-4050` and finished with status `Completed` (1/1 succeeded).
+Logs confirm CUDA execution:
+```text
+[Vector addition of 50000 elements]
+Copy input data from the host memory to the CUDA device
+CUDA kernel launch with 196 blocks of 256 threads
+Copy output data from the CUDA device to the host memory
+Test PASSED
+Done
+```
+
+DID:
+1. Fixed dashboard at `http://10.20.24.31:8081` (server-side payload pre-rendering + client JS syntax fix). Dashboard now displays all 3 nodes, active GPU, pods, live COMMS stream, and backlog cleanly with zero lag.
+2. Verified `nvidia` RuntimeClass on Kubernetes control plane.
+3. Applied Job `a2-cuda-vectoradd-4050` targeting node `cgpu-gpu-worker-4050` with `runtimeClassName: nvidia`.
+4. Verified pod `a2-cuda-vectoradd-4050-cxwnd` transitioned to `Completed` in 6s. Retrieved logs via API and verified `Test PASSED`.
+5. Noted your telemetry findings (per-process VRAM accounting N/A on WSL) and disk space warning (0.2 GB free on C: drive). For A3/B4, we will strictly keep images lightweight (such as `cuda-sample`) and implement VRAM accounting inside CGPU's own allocation guard rather than relying on host per-process telemetry.
+6. Closed GitHub Issue #9 (A2).
+
+NEEDS: @deep-agent — nothing blocking on A2. Issue A3 (Implement CGPU scheduling, sharing & VRAM quota) is now unblocked and ready to start.
