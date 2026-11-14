@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CGPU Platform — Issue B1 Test & Preview Dashboard</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --card-bg: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --text-muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-green: #3fb950;
+      --accent-red: #f85149;
+      --accent-yellow: #d29922;
+      --accent-purple: #bc8cff;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 24px;
+    }
+    header {
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 16px;
+      margin-bottom: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    h1 { font-size: 1.5rem; color: #fff; display: flex; align-items: center; gap: 10px; }
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .badge-success { background: rgba(63, 185, 80, 0.15); color: var(--accent-green); border: 1px solid var(--accent-green); }
+    .badge-info { background: rgba(88, 166, 255, 0.15); color: var(--accent); border: 1px solid var(--accent); }
+    .badge-warn { background: rgba(210, 153, 34, 0.15); color: var(--accent-yellow); border: 1px solid var(--accent-yellow); }
+    .badge-error { background: rgba(248, 81, 73, 0.15); color: var(--accent-red); border: 1px solid var(--accent-red); }
+
+    .nav-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+      flex-wrap: wrap;
+    }
+    .tab-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      transition: all 0.2s;
+    }
+    .tab-btn:hover { background: #21262d; }
+    .tab-btn.active {
+      background: var(--accent);
+      color: #0d1117;
+      border-color: var(--accent);
+      font-weight: 600;
+    }
+
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+    }
+    .card h3 { color: #fff; font-size: 1.1rem; margin-bottom: 8px; }
+    .card p { color: var(--text-muted); font-size: 0.88rem; margin-bottom: 12px; }
+
+    .btn-mock {
+      background: #21262d;
+      border: 1px solid var(--border);
+      color: var(--accent);
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      width: 100%;
+      text-align: left;
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: all 0.15s;
+    }
+    .btn-mock:hover { background: #30363d; border-color: var(--accent); }
+    .btn-mock.active { border-color: var(--accent); background: rgba(88, 166, 255, 0.1); }
+
+    pre {
+      background: #090d12;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 14px;
+      overflow-x: auto;
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.82rem;
+      color: #79c0ff;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 10px 14px;
+      text-align: left;
+      font-size: 0.88rem;
+    }
+    th { background: #1f242c; color: #fff; }
+    tr:nth-child(even) { background: rgba(255, 255, 255, 0.02); }
+
+    .method {
+      display: inline-block;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+    }
+    .method-post { background: rgba(63, 185, 80, 0.2); color: var(--accent-green); }
+    .method-get { background: rgba(88, 166, 255, 0.2); color: var(--accent); }
+    .method-delete { background: rgba(248, 81, 73, 0.2); color: var(--accent-red); }
+
+    .split-view {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 800px) {
+      .split-view { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div>
+      <h1>⚡ CGPU Platform — Issue B1 Test & Preview</h1>
+      <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 4px;">
+        Contract Verification for Next.js Portal, Go API & CGPU Placement Component
+      </p>
+    </div>
+    <div>
+      <span class="badge badge-success">Issue #8: Acceptance Verified</span>
+      <span class="badge badge-info">OpenAPI 3.1</span>
+      <span class="badge badge-warn">RTX 4050 6GB Pool</span>
+    </div>
+  </header>
+
+  <nav class="nav-tabs">
+    <button class="tab-btn active" onclick="showTab('mocks')">🎯 Interactive Mock Explorer</button>
+    <button class="tab-btn" onclick="showTab('endpoints')">📋 API Endpoints Contract</button>
+    <button class="tab-btn" onclick="showTab('workload')">🧠 Demonstration Workload</button>
+    <button class="tab-btn" onclick="showTab('scheduler')">🤝 Scheduler Handoff (Deep & Nishit)</button>
+    <button class="tab-btn" onclick="showTab('cli')">💻 CLI & Local Server Commands</button>
+  </nav>
+
+  <!-- TAB 1: MOCK EXPLORER -->
+  <div id="tab-mocks" class="tab-pane active">
+    <div class="split-view">
+      <div>
+        <h3 style="margin-bottom: 12px; color: #fff;">Select Scenario</h3>
+        <button class="btn-mock active" onclick="loadMockData('01')">
+          <span>1. Successful Submission</span>
+          <span class="badge badge-success">201 Created</span>
+        </button>
+        <button class="btn-mock" onclick="loadMockData('02')">
+          <span>2. Waiting for Capacity</span>
+          <span class="badge badge-warn">Pending</span>
+        </button>
+        <button class="btn-mock" onclick="loadMockData('03')">
+          <span>3. Invalid Requests</span>
+          <span class="badge badge-error">400 Bad Request</span>
+        </button>
+        <button class="btn-mock" onclick="loadMockData('04')">
+          <span>4. Unavailable Telemetry</span>
+          <span class="badge badge-info">200 Running</span>
+        </button>
+        <button class="btn-mock" onclick="loadMockData('05')">
+          <span>5. Job Failure (CUDA OOM)</span>
+          <span class="badge badge-error">Failed</span>
+        </button>
+        <button class="btn-mock" onclick="loadMockData('06')">
+          <span>6. Completed + Checkpoint</span>
+          <span class="badge badge-success">Succeeded</span>
+        </button>
+        <div style="height: 1px; background: var(--border); margin: 12px 0;"></div>
+        <button class="btn-mock" onclick="loadMockData('07')">
+          <span>7. GPU Cluster Inventory</span>
+          <span class="badge badge-info">RTX 4050 Pool</span>
+        </button>
+        <button class="btn-mock" onclick="loadMockData('08')">
+          <span>8. Job History List</span>
+          <span class="badge badge-info">Paginated</span>
+        </button>
+        <button class="btn-mock" onclick="loadMockData('09')">
+          <span>9. Workload Logs</span>
+          <span class="badge badge-info">Streams</span>
+        </button>
+      </div>
+
+      <div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <h3 id="mock-title" style="color: #fff;">Scenario 1: Successful Submission</h3>
+          <span id="mock-status-badge" class="badge badge-success">HTTP 201 Created</span>
+        </div>
+        <p id="mock-desc" style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 12px;">
+          Client posts a new PyTorch job with request_id for retry handling. API admits the workload and allocates an initial PENDING state.
+        </p>
+        <pre><code id="mock-code">// Loading JSON...</code></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 2: API ENDPOINTS CONTRACT -->
+  <div id="tab-endpoints" class="tab-pane">
+    <div class="card" style="margin-bottom: 20px;">
+      <h3>Contract Summary (Next.js Portal ⟷ Go API Gateway)</h3>
+      <p>All endpoints accept and return JSON. The client provides <code>request_id</code> (UUIDv4) on submission for idempotent retries.</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Method</th>
+            <th>Endpoint</th>
+            <th>Primary Purpose</th>
+            <th>Key Input / Constraints</th>
+            <th>Key Output</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="method method-post">POST</span></td>
+            <td><code>/api/v1/jobs</code></td>
+            <td>Submit workload</td>
+            <td><code>request_id</code>, <code>name</code>, <code>workload_id</code>, <code>requested_vram_mib</code> (&gt;0)</td>
+            <td><code>201 Created</code> (or <code>200 OK</code> if retried) with Job ID</td>
+          </tr>
+          <tr>
+            <td><span class="method method-get">GET</span></td>
+            <td><code>/api/v1/jobs</code></td>
+            <td>Job History</td>
+            <td><code>status</code>, <code>workload_id</code>, <code>page</code>, <code>limit</code></td>
+            <td>Paginated job summaries list</td>
+          </tr>
+          <tr>
+            <td><span class="method method-get">GET</span></td>
+            <td><code>/api/v1/jobs/{job_id}</code></td>
+            <td>Status &amp; Telemetry</td>
+            <td><code>job_id</code> path param</td>
+            <td>Lifecycle state, placement node, live GPU metrics, failure diagnostics</td>
+          </tr>
+          <tr>
+            <td><span class="method method-delete">DELETE</span></td>
+            <td><code>/api/v1/jobs/{job_id}</code></td>
+            <td>Cancel workload</td>
+            <td><code>job_id</code> path param</td>
+            <td>Releases GPU VRAM allocation immediately</td>
+          </tr>
+          <tr>
+            <td><span class="method method-get">GET</span></td>
+            <td><code>/api/v1/jobs/{job_id}/logs</code></td>
+            <td>Log Stream</td>
+            <td><code>tail</code>, <code>stream=true</code> (SSE)</td>
+            <td>Structured stdout/stderr logs</td>
+          </tr>
+          <tr>
+            <td><span class="method method-get">GET</span></td>
+            <td><code>/api/v1/jobs/{job_id}/artifacts</code></td>
+            <td>Artifacts &amp; Checkpoints</td>
+            <td><code>job_id</code> path param</td>
+            <td>List of saved model weights, <code>.pt</code> checkpoints, sha256 hashes</td>
+          </tr>
+          <tr>
+            <td><span class="method method-get">GET</span></td>
+            <td><code>/api/v1/gpus</code></td>
+            <td>GPU Pool Inventory</td>
+            <td>None</td>
+            <td>Nodes, GPUs, total/allocated/free VRAM, active allocations</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- TAB 3: DEMONSTRATION WORKLOAD -->
+  <div id="tab-workload" class="tab-pane">
+    <div class="card-grid">
+      <div class="card">
+        <h3>🧠 Selected Workload</h3>
+        <p><strong>PyTorch ResNet-18 Image Classification (CIFAR-10)</strong></p>
+        <p>Catalog ID: <code>pytorch-resnet18-cifar10</code></p>
+        <p>Container: <code>cgpu/workloads/pytorch-resnet18-cifar10:1.0.0</code></p>
+        <p>Requested VRAM: <strong>2,048 MiB</strong></p>
+      </div>
+      <div class="card">
+        <h3>💻 Virtualization Demonstration</h3>
+        <p>On an RTX 4050 6GB Laptop GPU (6,144 MiB total VRAM):</p>
+        <p>• Job A: 2048 MiB (Running)</p>
+        <p>• Job B: 2048 MiB (Running)</p>
+        <p>• Remaining Pool: 2048 MiB available for Job C</p>
+        <p><em>Proves multi-tenant GPU sharing without out-of-memory crashes!</em></p>
+      </div>
+      <div class="card">
+        <h3>📦 Inputs &amp; Outputs</h3>
+        <p><strong>Inputs:</strong> Mounted <code>/etc/cgpu/params.json</code> or <code>CGPU_JOB_PARAMS</code></p>
+        <p><strong>Checkpoints:</strong> Written to <code>/outputs/checkpoints/checkpoint_epoch_*.pt</code></p>
+        <p><strong>Metrics:</strong> Written to <code>/outputs/metrics.json</code></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 4: SCHEDULER HANDOFF -->
+  <div id="tab-scheduler" class="tab-pane">
+    <div class="card">
+      <h3>🤝 Scheduler Placement Handoff (Deep Patel &amp; Nishit)</h3>
+      <p>The Go API submits unplaced jobs to the CGPU Placement Engine. The scheduler returns:</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Field</th>
+            <th>Type</th>
+            <th>Example</th>
+            <th>Role</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>assigned_node</code></td>
+            <td>string</td>
+            <td><code>wsl-worker-rtx4050-01</code></td>
+            <td>Target Kubernetes worker node</td>
+          </tr>
+          <tr>
+            <td><code>assigned_gpu_id</code></td>
+            <td>string</td>
+            <td><code>gpu-nv-rtx4050-c89b3f</code></td>
+            <td>Target GPU hardware instance</td>
+          </tr>
+          <tr>
+            <td><code>quota.allocated_vram_mib</code></td>
+            <td>int</td>
+            <td><code>2048</code></td>
+            <td>VRAM slice quota in MiB</td>
+          </tr>
+          <tr>
+            <td><code>quota.enforcement_mode</code></td>
+            <td>string</td>
+            <td><code>CGPU_VIRTUAL_CGROUP</code></td>
+            <td>Isolation &amp; cgroup memory limit</td>
+          </tr>
+          <tr>
+            <td><code>placement_reason</code></td>
+            <td>string</td>
+            <td><code>BEST_FIT_PACKING_FOUND</code></td>
+            <td>Placement explanation when status == PLACED</td>
+          </tr>
+          <tr>
+            <td><code>pending_reason</code></td>
+            <td>string</td>
+            <td><code>WAITING_FOR_CAPACITY</code></td>
+            <td>Explanation when status == PENDING</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- TAB 5: CLI COMMANDS -->
+  <div id="tab-cli" class="tab-pane">
+    <div class="card" style="margin-bottom: 16px;">
+      <h3>1. Run the Automated Test Suite</h3>
+      <p>Validates all mock responses, OpenAPI schemas, and demonstration workload in seconds:</p>
+      <pre><code>python test_api_mocks.py</code></pre>
+    </div>
+    <div class="card" style="margin-bottom: 16px;">
+      <h3>2. Start the Zero-Dependency Local Mock API Server</h3>
+      <p>Serves all mock endpoints on port 8080 with full CORS support for Next.js development:</p>
+      <pre><code>python api/mocks/server.py 8080</code></pre>
+    </div>
+    <div class="card">
+      <h3>3. Test the PyTorch Demonstration Workload Locally</h3>
+      <p>Runs 2 simulated epochs and generates real checkpoint and metrics files:</p>
+      <pre><code>python workloads/demonstration/train.py --epochs 2 --output-dir ./outputs</code></pre>
+    </div>
+  </div>
+
+  <script>
+    const mockDatabase = {
+      '01': {
+        title: 'Scenario 1: Successful Submission (201 Created)',
+        badge: 'HTTP 201 Created',
+        badgeClass: 'badge-success',
+        desc: 'Workload admitted with request_id for retry handling. Schedulers begins evaluation.',
+        file: 'api/mocks/01_submission_success.json'
+      },
+      '02': {
+        title: 'Scenario 2: Waiting for Capacity (Pending)',
+        badge: 'HTTP 200 Pending',
+        badgeClass: 'badge-warn',
+        desc: 'Job requested 4096 MiB, but pool currently has only 2048 MiB free. Returns queue position #2.',
+        file: 'api/mocks/02_waiting_for_capacity.json'
+      },
+      '03': {
+        title: 'Scenario 3: Invalid Requests (400 Bad Request)',
+        badge: 'HTTP 400 Bad Request',
+        badgeClass: 'badge-error',
+        desc: 'Validates negative VRAM (-1024), missing workload_id, and invalid UUID format.',
+        file: 'api/mocks/03_invalid_request.json'
+      },
+      '04': {
+        title: 'Scenario 4: Unavailable Telemetry (Running)',
+        badge: 'HTTP 200 Running',
+        badgeClass: 'badge-info',
+        desc: 'Workload is running smoothly, but NVML metric agent is offline. Graceful fallback provided.',
+        file: 'api/mocks/04_unavailable_telemetry.json'
+      },
+      '05': {
+        title: 'Scenario 5: Job Failure (CUDA Out of Memory)',
+        badge: 'HTTP 200 Failed',
+        badgeClass: 'badge-error',
+        desc: 'Batch size was too high, exceeding 2048 MiB slice. Exited with code 137 + Python stacktrace.',
+        file: 'api/mocks/05_job_failure_oom.json'
+      },
+      '06': {
+        title: 'Scenario 6: Completed Job with Checkpoint (Succeeded)',
+        badge: 'HTTP 200 Succeeded',
+        badgeClass: 'badge-success',
+        desc: '5 epochs completed with 91.4% accuracy. Download links and sha256 checksums for checkpoints.',
+        file: 'api/mocks/06_completed_job_checkpoint.json'
+      },
+      '07': {
+        title: 'GPU Cluster Inventory (RTX 4050 6GB Pool)',
+        badge: 'Inventory Active',
+        badgeClass: 'badge-info',
+        desc: 'Shows node nirav-wsl2-gpu with 6144 MiB total, 4096 MiB allocated to 2 jobs, and 2048 MiB free.',
+        file: 'api/mocks/07_gpu_inventory.json'
+      },
+      '08': {
+        title: 'Job History List',
+        badge: 'Paginated History',
+        badgeClass: 'badge-info',
+        desc: 'List of jobs across all states (Succeeded, Running, Failed, Pending) for portal history view.',
+        file: 'api/mocks/08_job_history.json'
+      },
+      '09': {
+        title: 'Workload Execution Logs',
+        badge: 'Log Stream',
+        badgeClass: 'badge-info',
+        desc: 'Sample training stdout logs showing epoch progress, validation accuracy, and checkpoint saves.',
+        file: 'api/mocks/09_job_logs.json'
+      }
+    };
+
+    function showTab(tabId) {
+      document.querySelectorAll('.tab-pane').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+      document.getElementById('tab-' + tabId).classList.add('active');
+      event.target.classList.add('active');
+    }
+
+    async function loadMockData(key) {
+      document.querySelectorAll('.btn-mock').forEach(b => b.classList.remove('active'));
+      event.currentTarget.classList.add('active');
+
+      const info = mockDatabase[key];
+      document.getElementById('mock-title').innerText = info.title;
+      document.getElementById('mock-desc').innerText = info.desc;
+      const badge = document.getElementById('mock-status-badge');
+      badge.innerText = info.badge;
+      badge.className = 'badge ' + info.badgeClass;
+
+      try {
+        const res = await fetch(info.file);
+        const data = await res.json();
+        document.getElementById('mock-code').innerText = JSON.stringify(data, null, 2);
+      } catch (e) {
+        document.getElementById('mock-code').innerText = '// Unable to fetch ' + info.file + ' directly via file://. Run with local server or open ' + info.file + ' in editor.';
+      }
+    }
+
+    // Initial load
+    window.onload = () => {
+      loadMockData('01');
+    };
+  </script>
+</body>
+</html>
+

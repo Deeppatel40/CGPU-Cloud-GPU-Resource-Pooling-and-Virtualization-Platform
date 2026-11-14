@@ -1,0 +1,8 @@
+{
+  "final_loss": 0.5053,
+  "final_accuracy": 81.27,
+  "peak_vram_mib": 1780,
+  "total_duration_seconds": 1.54,
+  "epochs_completed": 3,
+  "samples_per_second": 328.4
+}

@@ -1,0 +1,64 @@
+{
+  "status_code": 200,
+  "data": {
+    "total_nodes": 1,
+    "total_gpus": 1,
+    "aggregate_vram_mib": 6144,
+    "allocated_vram_mib": 4096,
+    "free_vram_mib": 2048,
+    "nodes": [
+      {
+        "node_id": "wsl-worker-rtx4050-01",
+        "hostname": "nirav-wsl2-gpu",
+        "status": "ONLINE",
+        "ip_address": "192.168.1.140",
+        "kubernetes_node": "wsl-worker-rtx4050-01",
+        "labels": {
+          "gpu-type": "nvidia-rtx4050",
+          "cgpu.io/role": "worker",
+          "cgpu.io/virtualization": "enabled"
+        },
+        "gpus": [
+          {
+            "gpu_id": "gpu-nv-rtx4050-c89b3f",
+            "index": 0,
+            "name": "NVIDIA GeForce RTX 4050 Laptop GPU",
+            "pci_bus_id": "0000:01:00.0",
+            "driver_version": "560.94",
+            "cuda_version": "12.6",
+            "compute_capability": "8.9",
+            "total_vram_mib": 6144,
+            "allocated_vram_mib": 4096,
+            "free_vram_mib": 2048,
+            "health_status": "HEALTHY",
+            "telemetry": {
+              "status": "AVAILABLE",
+              "gpu_utilization_pct": 74,
+              "memory_used_mib": 3620,
+              "temperature_celsius": 67,
+              "power_draw_watts": 45.2,
+              "sampled_at": "2026-11-14T11:24:00Z"
+            },
+            "active_allocations": [
+              {
+                "job_id": "job-alpha-123",
+                "job_name": "resnet18-cifar10-job1",
+                "allocated_vram_mib": 2048,
+                "container_id": "docker://f9a812...",
+                "allocated_at": "2026-11-14T11:15:00Z"
+              },
+              {
+                "job_id": "job-beta-456",
+                "job_name": "resnet18-cifar10-job2",
+                "allocated_vram_mib": 2048,
+                "container_id": "docker://b3c109...",
+                "allocated_at": "2026-11-14T11:18:00Z"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
+

@@ -1,0 +1,852 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "CGPU Platform API",
+    "description": "REST API for the Cloud GPU Resource Pooling and Virtualization Platform (CGPU). Enables GPU workload submission, lifecycle management, fractional GPU scheduling, telemetry aggregation, log streaming, and artifact retrieval.",
+    "version": "1.0.0",
+    "contact": {
+      "name": "CGPU Platform Team",
+      "url": "https://github.com/Deeppatel40/CGPU-Cloud-GPU-Resource-Pooling-and-Virtualization-Platform"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080/api/v1",
+      "description": "Local Go API Gateway"
+    },
+    {
+      "url": "https://api.cgpu.internal/api/v1",
+      "description": "Internal Cluster Gateway"
+    }
+  ],
+  "paths": {
+    "/jobs": {
+      "post": {
+        "summary": "Submit a new GPU workload job",
+        "description": "Submits a GPU workload to the CGPU scheduling queue. Supports retry handling and idempotency using request_id.",
+        "operationId": "submitJob",
+        "parameters": [
+          {
+            "name": "X-Request-Id",
+            "in": "header",
+            "required": false,
+            "description": "Client-supplied UUIDv4 for request deduplication and retry handling.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobSubmissionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Job created and admitted to queue.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatusResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Idempotent return of an existing job previously submitted with the same request_id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatusResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request payload or parameter constraints violated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict in scheduling or resource quota.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "List job execution history",
+        "description": "Retrieves a paginated list of submitted, active, and historical GPU workloads.",
+        "operationId": "listJobs",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "Filter jobs by status.",
+            "schema": {
+              "$ref": "#/components/schemas/JobState"
+            }
+          },
+          {
+            "name": "workload_id",
+            "in": "query",
+            "required": false,
+            "description": "Filter jobs by workload catalog identifier.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "description": "Filter jobs submitted by a specific user.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            },
+            "description": "Page number (1-based)."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            },
+            "description": "Number of items per page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list of jobs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/{job_id}": {
+      "get": {
+        "summary": "Get detailed status and placement of a job",
+        "description": "Returns full job lifecycle state, placement node/GPU, telemetry metrics, and error info if failed.",
+        "operationId": "getJob",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "description": "Unique job identifier.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Detailed job status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatusResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Cancel or abort a running/pending job",
+        "description": "Cancels job execution, stops Kubernetes container, and releases GPU VRAM allocation.",
+        "operationId": "cancelJob",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "description": "Unique job identifier.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job successfully cancelled.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatusResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/{job_id}/logs": {
+      "get": {
+        "summary": "Retrieve standard output and error logs",
+        "description": "Fetches logs produced by the workload container. Supports line limit and live streaming (SSE).",
+        "operationId": "getJobLogs",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "description": "Unique job identifier.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tail",
+            "in": "query",
+            "required": false,
+            "description": "Return only the latest N log lines.",
+            "schema": {
+              "type": "integer",
+              "default": 100
+            }
+          },
+          {
+            "name": "stream",
+            "in": "query",
+            "required": false,
+            "description": "Enable Server-Sent Events (SSE) streaming for real-time log output.",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Log content.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobLogsResponse"
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "type": "string",
+                  "description": "Real-time SSE stream of log entries."
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/{job_id}/artifacts": {
+      "get": {
+        "summary": "List output artifacts and saved checkpoints",
+        "description": "Returns metadata, hashes, and download links for model weights, checkpoints, and metrics files.",
+        "operationId": "listJobArtifacts",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "description": "Unique job identifier.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of available artifacts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobArtifactsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/jobs/{job_id}/artifacts/{artifact_id}/download": {
+      "get": {
+        "summary": "Download a specific artifact or checkpoint",
+        "description": "Downloads the binary artifact file or redirects to a secure presigned storage URL.",
+        "operationId": "downloadJobArtifact",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Binary file stream.",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "302": {
+            "description": "Redirect to presigned object storage URL."
+          },
+          "404": {
+            "description": "Artifact not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/gpus": {
+      "get": {
+        "summary": "Get cluster GPU inventory and pooling state",
+        "description": "Returns nodes, physical GPU devices, allocated VRAM, free VRAM, and health statuses.",
+        "operationId": "listGPUInventory",
+        "responses": {
+          "200": {
+            "description": "GPU cluster inventory.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GPUInventoryResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/gpus/{gpu_id}": {
+      "get": {
+        "summary": "Get single GPU details and active allocations",
+        "description": "Returns detailed specifications, live telemetry, and active workload allocations for a GPU.",
+        "operationId": "getGPUDetails",
+        "parameters": [
+          {
+            "name": "gpu_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Individual GPU details.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GPUDevice"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "GPU not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "JobState": {
+        "type": "string",
+        "enum": ["PENDING", "RUNNING", "SUCCEEDED", "FAILED"],
+        "description": "Primary lifecycle state of the workload."
+      },
+      "PendingReason": {
+        "type": "string",
+        "enum": [
+          "WAITING_FOR_CAPACITY",
+          "QUEUED_FIFO",
+          "SCHEDULING_IN_PROGRESS",
+          "PULLING_IMAGE",
+          "CONTAINER_CREATING",
+          "NODE_DRAINING_OR_CORDONED"
+        ],
+        "description": "Reason explaining why a job is currently in PENDING state."
+      },
+      "FailureReason": {
+        "type": "string",
+        "enum": [
+          "CUDA_OUT_OF_MEMORY",
+          "CONTAINER_NON_ZERO_EXIT",
+          "INVALID_WORKLOAD_PARAMS",
+          "DATASET_DOWNLOAD_FAILED",
+          "SCHEDULING_TIMEOUT",
+          "NODE_FAILURE",
+          "CANCELLED_BY_USER"
+        ],
+        "description": "Root cause reason when a job transitions to FAILED."
+      },
+      "JobSubmissionRequest": {
+        "type": "object",
+        "required": ["request_id", "name", "workload_id", "requested_vram_mib"],
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique client-generated UUID for retry handling and idempotency.",
+            "example": "req-7b3f9408-e4b2-4d56-b072-20c2420a8511"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Human-readable job name.",
+            "example": "resnet18-cifar10-run-1"
+          },
+          "workload_id": {
+            "type": "string",
+            "description": "Approved demonstration workload catalog identifier.",
+            "example": "pytorch-resnet18-cifar10"
+          },
+          "requested_vram_mib": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Positive integer representing requested GPU VRAM in MiB.",
+            "example": 2048
+          },
+          "parameters": {
+            "type": "object",
+            "description": "Workload-specific hyperparameters.",
+            "additionalProperties": true,
+            "example": {
+              "epochs": 5,
+              "batch_size": 64,
+              "learning_rate": 0.001,
+              "optimizer": "adam"
+            }
+          },
+          "dataset": {
+            "$ref": "#/components/schemas/DatasetReference"
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "default": 5,
+            "description": "Job priority (1 = lowest, 10 = highest).",
+            "example": 5
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "minimum": 60,
+            "default": 3600,
+            "description": "Maximum allowable execution time before automatic cancellation.",
+            "example": 3600
+          }
+        }
+      },
+      "DatasetReference": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["builtin", "http", "s3", "pvc"],
+            "example": "builtin"
+          },
+          "name": {
+            "type": "string",
+            "example": "cifar10"
+          },
+          "uri": {
+            "type": "string",
+            "example": "builtin://cifar10"
+          },
+          "checksum_sha256": {
+            "type": "string",
+            "example": "2a806963d7cd2c10c97361a792b9027a5dc07141ff19f6db6b22002309de8861"
+          }
+        }
+      },
+      "JobStatusResponse": {
+        "type": "object",
+        "required": [
+          "job_id",
+          "request_id",
+          "name",
+          "workload_id",
+          "status",
+          "requested_vram_mib",
+          "timestamps"
+        ],
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "example": "job-9e2b14f8-45a1-432c-b58a-6b5832a8e412"
+          },
+          "request_id": {
+            "type": "string",
+            "example": "req-7b3f9408-e4b2-4d56-b072-20c2420a8511"
+          },
+          "name": {
+            "type": "string",
+            "example": "resnet18-cifar10-run-1"
+          },
+          "workload_id": {
+            "type": "string",
+            "example": "pytorch-resnet18-cifar10"
+          },
+          "status": {
+            "$ref": "#/components/schemas/JobState"
+          },
+          "sub_status": {
+            "type": "string",
+            "example": "COMPUTING"
+          },
+          "pending_reason": {
+            "$ref": "#/components/schemas/PendingReason"
+          },
+          "pending_details": {
+            "type": "object",
+            "properties": {
+              "message": { "type": "string" },
+              "queue_position": { "type": "integer" },
+              "required_vram_mib": { "type": "integer" },
+              "available_vram_mib": { "type": "integer" }
+            }
+          },
+          "failure_reason": {
+            "$ref": "#/components/schemas/FailureReason"
+          },
+          "failure_details": {
+            "type": "object",
+            "properties": {
+              "exit_code": { "type": "integer" },
+              "error_message": { "type": "string" },
+              "stacktrace": { "type": "string" }
+            }
+          },
+          "requested_vram_mib": {
+            "type": "integer",
+            "example": 2048
+          },
+          "parameters": {
+            "type": "object"
+          },
+          "dataset": {
+            "$ref": "#/components/schemas/DatasetReference"
+          },
+          "placement": {
+            "$ref": "#/components/schemas/PlacementDetails"
+          },
+          "telemetry": {
+            "$ref": "#/components/schemas/GPUTelemetrySample"
+          },
+          "execution_metrics": {
+            "type": "object",
+            "properties": {
+              "final_loss": { "type": "number" },
+              "final_accuracy": { "type": "number" },
+              "peak_vram_mib": { "type": "integer" },
+              "total_duration_seconds": { "type": "number" }
+            }
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArtifactMetadata"
+            }
+          },
+          "timestamps": {
+            "type": "object",
+            "required": ["submitted_at"],
+            "properties": {
+              "submitted_at": { "type": "string", "format": "date-time" },
+              "scheduled_at": { "type": "string", "format": "date-time", "nullable": true },
+              "started_at": { "type": "string", "format": "date-time", "nullable": true },
+              "completed_at": { "type": "string", "format": "date-time", "nullable": true }
+            }
+          }
+        }
+      },
+      "PlacementDetails": {
+        "type": "object",
+        "properties": {
+          "node_id": { "type": "string", "example": "wsl-worker-rtx4050-01" },
+          "gpu_id": { "type": "string", "example": "gpu-nv-rtx4050-c89b3f" },
+          "allocated_vram_mib": { "type": "integer", "example": 2048 },
+          "enforcement_mode": { "type": "string", "example": "CGPU_VIRTUAL_CGROUP" },
+          "placement_reason": { "type": "string", "example": "BEST_FIT_PACKING_FOUND" },
+          "scheduled_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "GPUTelemetrySample": {
+        "type": "object",
+        "required": ["status"],
+        "properties": {
+          "status": { "type": "string", "enum": ["AVAILABLE", "UNAVAILABLE"], "example": "AVAILABLE" },
+          "reason": { "type": "string", "example": "NVML_METRIC_AGENT_OFFLINE" },
+          "message": { "type": "string", "example": "Telemetry collector offline on node wsl-worker-rtx4050-01" },
+          "gpu_utilization_pct": { "type": "integer", "minimum": 0, "maximum": 100, "example": 78 },
+          "memory_used_mib": { "type": "integer", "example": 1840 },
+          "temperature_celsius": { "type": "integer", "example": 67 },
+          "power_watts": { "type": "number", "example": 48.5 },
+          "sampled_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ArtifactMetadata": {
+        "type": "object",
+        "required": ["artifact_id", "name", "artifact_type", "size_bytes", "checksum_sha256", "download_url"],
+        "properties": {
+          "artifact_id": { "type": "string", "example": "art-ckpt-epoch-5" },
+          "name": { "type": "string", "example": "checkpoint_epoch_5.pt" },
+          "artifact_type": { "type": "string", "enum": ["checkpoint", "model_weights", "metrics", "logs", "tensorboard"], "example": "checkpoint" },
+          "size_bytes": { "type": "integer", "example": 44781204 },
+          "checksum_sha256": { "type": "string", "example": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
+          "download_url": { "type": "string", "example": "/api/v1/jobs/job-9e2b14f8-45a1-432c-b58a-6b5832a8e412/artifacts/art-ckpt-epoch-5/download" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "JobListResponse": {
+        "type": "object",
+        "required": ["items", "pagination"],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/JobSummary" }
+          },
+          "pagination": { "$ref": "#/components/schemas/PaginationMetadata" }
+        }
+      },
+      "JobSummary": {
+        "type": "object",
+        "required": ["job_id", "name", "workload_id", "status", "requested_vram_mib", "submitted_at"],
+        "properties": {
+          "job_id": { "type": "string", "example": "job-9e2b14f8-45a1-432c-b58a-6b5832a8e412" },
+          "name": { "type": "string", "example": "resnet18-cifar10-run-1" },
+          "workload_id": { "type": "string", "example": "pytorch-resnet18-cifar10" },
+          "status": { "$ref": "#/components/schemas/JobState" },
+          "requested_vram_mib": { "type": "integer", "example": 2048 },
+          "node_id": { "type": "string", "nullable": true, "example": "wsl-worker-rtx4050-01" },
+          "submitted_at": { "type": "string", "format": "date-time" },
+          "duration_seconds": { "type": "number", "nullable": true, "example": 184.2 }
+        }
+      },
+      "PaginationMetadata": {
+        "type": "object",
+        "required": ["current_page", "page_size", "total_items", "total_pages"],
+        "properties": {
+          "current_page": { "type": "integer", "example": 1 },
+          "page_size": { "type": "integer", "example": 20 },
+          "total_items": { "type": "integer", "example": 42 },
+          "total_pages": { "type": "integer", "example": 3 }
+        }
+      },
+      "JobLogsResponse": {
+        "type": "object",
+        "required": ["job_id", "lines"],
+        "properties": {
+          "job_id": { "type": "string" },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["timestamp", "stream", "message"],
+              "properties": {
+                "timestamp": { "type": "string", "format": "date-time" },
+                "stream": { "type": "string", "enum": ["stdout", "stderr"] },
+                "message": { "type": "string" }
+              }
+            }
+          }
+        }
+      },
+      "JobArtifactsResponse": {
+        "type": "object",
+        "required": ["job_id", "artifacts"],
+        "properties": {
+          "job_id": { "type": "string" },
+          "artifacts": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ArtifactMetadata" }
+          }
+        }
+      },
+      "GPUInventoryResponse": {
+        "type": "object",
+        "required": ["total_nodes", "total_gpus", "aggregate_vram_mib", "allocated_vram_mib", "free_vram_mib", "nodes"],
+        "properties": {
+          "total_nodes": { "type": "integer", "example": 1 },
+          "total_gpus": { "type": "integer", "example": 1 },
+          "aggregate_vram_mib": { "type": "integer", "example": 6144 },
+          "allocated_vram_mib": { "type": "integer", "example": 4096 },
+          "free_vram_mib": { "type": "integer", "example": 2048 },
+          "nodes": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/GPUNode" }
+          }
+        }
+      },
+      "GPUNode": {
+        "type": "object",
+        "required": ["node_id", "hostname", "status", "gpus"],
+        "properties": {
+          "node_id": { "type": "string", "example": "wsl-worker-rtx4050-01" },
+          "hostname": { "type": "string", "example": "nirav-wsl2-gpu" },
+          "status": { "type": "string", "enum": ["ONLINE", "OFFLINE", "MAINTENANCE"], "example": "ONLINE" },
+          "gpus": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/GPUDevice" }
+          }
+        }
+      },
+      "GPUDevice": {
+        "type": "object",
+        "required": ["gpu_id", "index", "name", "total_vram_mib", "allocated_vram_mib", "free_vram_mib", "health_status"],
+        "properties": {
+          "gpu_id": { "type": "string", "example": "gpu-nv-rtx4050-c89b3f" },
+          "index": { "type": "integer", "example": 0 },
+          "name": { "type": "string", "example": "NVIDIA GeForce RTX 4050 Laptop GPU" },
+          "driver_version": { "type": "string", "example": "560.94" },
+          "cuda_version": { "type": "string", "example": "12.6" },
+          "total_vram_mib": { "type": "integer", "example": 6144 },
+          "allocated_vram_mib": { "type": "integer", "example": 4096 },
+          "free_vram_mib": { "type": "integer", "example": 2048 },
+          "health_status": { "type": "string", "enum": ["HEALTHY", "DEGRADED", "UNHEALTHY"], "example": "HEALTHY" },
+          "telemetry": { "$ref": "#/components/schemas/GPUTelemetrySample" },
+          "active_allocations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["job_id", "allocated_vram_mib"],
+              "properties": {
+                "job_id": { "type": "string" },
+                "allocated_vram_mib": { "type": "integer" }
+              }
+            }
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["error_code", "message", "timestamp"],
+        "properties": {
+          "error_code": { "type": "string", "example": "VALIDATION_FAILED" },
+          "message": { "type": "string", "example": "Request payload validation failed." },
+          "details": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": { "type": "string", "example": "requested_vram_mib" },
+                "message": { "type": "string", "example": "must be a positive integer greater than 0" }
+              }
+            }
+          },
+          "timestamp": { "type": "string", "format": "date-time", "example": "2026-11-14T11:21:00Z" }
+        }
+      }
+    }
+  }
+}
+

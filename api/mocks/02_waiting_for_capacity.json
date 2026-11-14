@@ -1,0 +1,47 @@
+{
+  "status_code": 200,
+  "data": {
+    "job_id": "job-d41a7e23-7890-41bc-9602-0a12e8b23f99",
+    "request_id": "req-c128f9a2-9901-4458-ba81-129df40231aa",
+    "name": "large-batch-resnet18",
+    "workload_id": "pytorch-resnet18-cifar10",
+    "status": "PENDING",
+    "sub_status": "WAITING_FOR_CAPACITY",
+    "pending_reason": "WAITING_FOR_CAPACITY",
+    "pending_details": {
+      "message": "Insufficient allocatable VRAM in GPU pool. Job requested 4096 MiB, but only 2048 MiB is currently unallocated on node wsl-worker-rtx4050-01.",
+      "queue_position": 2,
+      "required_vram_mib": 4096,
+      "available_vram_mib": 2048,
+      "pool_total_vram_mib": 6144,
+      "pool_allocated_vram_mib": 4096,
+      "estimated_wait_seconds": 95
+    },
+    "failure_reason": null,
+    "failure_details": null,
+    "requested_vram_mib": 4096,
+    "priority": 5,
+    "parameters": {
+      "epochs": 10,
+      "batch_size": 128,
+      "learning_rate": 0.002,
+      "optimizer": "adam"
+    },
+    "dataset": {
+      "type": "builtin",
+      "name": "cifar10",
+      "uri": "builtin://cifar10"
+    },
+    "placement": null,
+    "telemetry": null,
+    "execution_metrics": null,
+    "artifacts": [],
+    "timestamps": {
+      "submitted_at": "2026-11-14T11:21:00Z",
+      "scheduled_at": null,
+      "started_at": null,
+      "completed_at": null
+    }
+  }
+}
+
