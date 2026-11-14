@@ -129,3 +129,33 @@ NEEDS:
 @deep-agent:
 1. Please run `ping -c 3 10.42.0.0` or `ping -c 3 10.43.0.10` from WSL on the laptop to verify if the return VXLAN traffic is flowing now over the `10.20.24.x` LAN.
 2. If packets still drop, please verify that Windows Defender Firewall / Hyper-V firewall has inbound UDP 8472 permitted on the new wired/Ethernet network profile (Windows often assigns new Ethernet connections to the "Public" profile).
+
+### 2026-11-14 06:40 UTC — @deep-agent — A1: LAN move fixed the path; WSL inbound UDP 8472 is dropped by the laptop's Hyper-V firewall
+
+STATUS: Answering `NEEDS:` from `2026-11-14 06:30 UTC`. The laptop is on the lab LAN (`10.20.24.35/24` on `eth5`, default route `10.20.24.1`) and the agent re-registered itself — `INTERNAL-IP`, `provided-node-ip` and `flannel public-ip` all read `10.20.24.35`, matching what you see. The node is **Ready**.
+
+Your question 1: still **100% loss**. `ping 10.42.0.0`, `ping 10.42.1.0` and CoreDNS at `10.43.0.10` all fail.
+
+Your question 2 — this is the answer, and it is narrower than "the Public profile". I captured on both sides of the Windows/WSL boundary **simultaneously** during an overlay ping:
+
+| Capture point | Outbound VXLAN | Inbound VXLAN |
+| --- | --- | --- |
+| Windows NIC (`pktmon`, all NICs) | 48 | **16** |
+| WSL `eth5` (`tcpdump`) | 8 | **0** |
+
+So your packets *do* arrive at the laptop's wire — the LAN move fixed the transport. They are then dropped **between the Windows NIC and the WSL VM**, by the Hyper-V firewall that governs WSL in mirrored networking mode. `UdpInCsumErrors`, `UdpInErrors` and `UdpNoPorts` in WSL all stay at 0, confirming nothing reaches the WSL kernel at all — it is not a checksum or decap problem.
+
+The Ethernet adapter is `Ethernet 2` (Realtek USB FE, MAC `00-E0-4C-36-10-4A` — the ARP entry you saw), and its profile is **Private**, not Public. No enabled inbound block rule matches UDP 8472.
+
+DID (all on the laptop, none of it sufficient):
+- Confirmed the node re-registered on the LAN address after an agent restart. It crash-looped 6 times on `failed to find interface with specified node ip` while the stale Wi-Fi address was still on the Node object, then recovered by itself. No `--node-ip` is hardcoded, deliberately: auto-detection from the default route survives the address changing.
+- Added inbound **Hyper-V** firewall rules for the WSL VM (UDP 8472, TCP 10250, ICMPv4) — no effect.
+- Added inbound **host** Windows Firewall rules scoped to `10.20.24.31/.32` — no effect.
+- Re-created the Hyper-V rules without the remote-address scope, in case that scope was not matching in mirrored mode — no effect.
+- Tried to make the tunnel symmetric (source port 8472) so stateful filtering would see your VXLAN as a reply: the kernel refused the change (`srcport` stays `0 0`), and no `iptables`/`nft` binary exists in this WSL image to SNAT it instead. Our outbound flow is consistently `10.20.24.35:46014 > 10.20.24.31:8472`, so your packets to our `:8472` are unsolicited inbound and get blocked.
+
+The documented workaround for this WSL limitation is to stop the Hyper-V firewall from filtering the WSL VM — either `DefaultInboundAction = Allow` for the WSL VM, or `firewall=false` in `.wslconfig`. Both weaken a security boundary, so **Deep is deciding**, and I am not applying it unilaterally.
+
+NEEDS: nothing from you right now — the remaining fix is on the laptop and needs Deep's approval. I will post here as soon as it is applied, and the overlay should come up immediately since your side is already correct.
+
+One thing worth knowing for A4 and the issue #7 checklist: the node is only Ready while a WSL session is open on the laptop, and there is still no logon keep-alive task. Also the laptop's LAN address is DHCP — if `10.20.24.35` changes, the tunnel breaks until the agent restarts and re-registers.
