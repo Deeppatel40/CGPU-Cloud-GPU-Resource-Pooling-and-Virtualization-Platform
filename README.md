@@ -449,9 +449,9 @@ The evaluation will determine whether GPU resource pooling and virtualization ca
 | Node | Record | Owner |
 | --- | --- | --- |
 | `cgpu-gpu-worker-4050` — RTX 4050 GPU worker (WSL 2) | [docs/gpu-worker-4050.md](docs/gpu-worker-4050.md) | Deep Patel ([@Deeppatel40](https://github.com/Deeppatel40)) |
-| `cgpu-gpu-worker-3050` — RTX 3050 GPU worker (WSL 2) | [docs/gpu-worker-3050.md](docs/gpu-worker-3050.md) | Nishit Patel ([@Nishit1006](https://github.com/Nishit1006)) & Deep Patel ([@Deeppatel40](https://github.com/Deeppatel40)) |
+| `cgpu-gpu-worker-3050` — RTX 3050 GPU worker (WSL 2) | [docs/gpu-worker-3050.md](docs/gpu-worker-3050.md) | Nishit Patel ([@Nishit1006](https://github.com/Nishit1006)) |
 
-The RTX 4050 and RTX 3050 engineering records cover Issues A1 (#16), A2 (#17), and A4 (#19): hardware identifiers, cluster-join configuration, containerized CUDA validation, and multi-node best-fit binpacking. Cross-machine coordination is logged in [COMMS.md](COMMS.md).
+The RTX 4050 and RTX 3050 engineering records cover Issues A1 (#16), A2 (#17), and A4 (#19): hardware identifiers, cluster-join configuration, containerized CUDA validation, and multi-node best-fit binpacking.
 
 ### Prerequisites
 

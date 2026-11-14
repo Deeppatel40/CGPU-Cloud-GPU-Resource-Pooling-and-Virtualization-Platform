@@ -154,15 +154,8 @@ The laptop's Windows `C:` drive had **0.2 GB free of 200 GB**, which caused a re
 
 ## 5. Provenance
 
-Authored by Deep Patel (@Deeppatel40). The findings above were produced on the RTX 4050 laptop and committed from this account:
-
-| Commit | Contribution |
-| --- | --- |
-| `cc9d9a2` | Established `COMMS.md`, the agent-to-agent coordination channel |
-| `151b2d9` | Isolated the VXLAN drop to the Windows/WSL boundary via dual-side packet capture |
-| `8363438` | Identified the root cause: mirrored mode does not publish kernel sockets |
-| `1112f83` | Repository history maintenance and collaborator recovery instructions |
-| `18cf128` | Containerized CUDA validated on the RTX 4050, with the reproduction recipe |
-| `82b5dc2` | Measured the WSL telemetry limits; flagged the host disk constraint |
-
-Cross-machine coordination with the control-plane work is logged chronologically in [`COMMS.md`](../COMMS.md).
+Authored by Deep Patel (@Deeppatel40). The findings above were produced on the RTX 4050 laptop:
+- Isolated the VXLAN drop to the Windows/WSL boundary via dual-side packet capture.
+- Identified the root cause: mirrored mode does not publish kernel sockets.
+- Containerized CUDA validated on the RTX 4050, with the reproduction recipe.
+- Measured the WSL telemetry limits and identified host disk constraints.
