@@ -1,0 +1,89 @@
+{
+  "status_code": 200,
+  "data": {
+    "job_id": "job-9e2b14f8-45a1-432c-b58a-6b5832a8e412",
+    "lines": [
+      {
+        "timestamp": "2026-11-14T11:20:15Z",
+        "stream": "stdout",
+        "message": "[CGPU-Init] Container runtime started on node 'wsl-worker-rtx4050-01'."
+      },
+      {
+        "timestamp": "2026-11-14T11:20:16Z",
+        "stream": "stdout",
+        "message": "[CGPU-Virtualization] GPU slice activated: Device=0, Quota=2048 MiB, Mode=CGPU_VIRTUAL_CGROUP."
+      },
+      {
+        "timestamp": "2026-11-14T11:20:17Z",
+        "stream": "stdout",
+        "message": "[PyTorch] CUDA Device 0: NVIDIA GeForce RTX 4050 Laptop GPU (Allocatable VRAM: 2048 MiB)."
+      },
+      {
+        "timestamp": "2026-11-14T11:20:18Z",
+        "stream": "stdout",
+        "message": "[PyTorch] Loading CIFAR-10 training dataset (50,000 images, 10 classes)..."
+      },
+      {
+        "timestamp": "2026-11-14T11:20:25Z",
+        "stream": "stdout",
+        "message": "Epoch [1/5] - Loss: 1.6842 - Train Acc: 41.2% - Val Loss: 1.3410 - Val Acc: 52.8% - Rate: 332 img/s"
+      },
+      {
+        "timestamp": "2026-11-14T11:20:26Z",
+        "stream": "stdout",
+        "message": "[Checkpoint] Saved epoch checkpoint to /outputs/checkpoints/checkpoint_epoch_1.pt (44.8 MB)"
+      },
+      {
+        "timestamp": "2026-11-14T11:21:05Z",
+        "stream": "stdout",
+        "message": "Epoch [2/5] - Loss: 1.1205 - Train Acc: 60.1% - Val Loss: 0.9841 - Val Acc: 66.4% - Rate: 330 img/s"
+      },
+      {
+        "timestamp": "2026-11-14T11:21:06Z",
+        "stream": "stdout",
+        "message": "[Checkpoint] Saved epoch checkpoint to /outputs/checkpoints/checkpoint_epoch_2.pt (44.8 MB)"
+      },
+      {
+        "timestamp": "2026-11-14T11:21:45Z",
+        "stream": "stdout",
+        "message": "Epoch [3/5] - Loss: 0.7924 - Train Acc: 72.8% - Val Loss: 0.7610 - Val Acc: 74.2% - Rate: 329 img/s"
+      },
+      {
+        "timestamp": "2026-11-14T11:21:46Z",
+        "stream": "stdout",
+        "message": "[Checkpoint] Saved epoch checkpoint to /outputs/checkpoints/checkpoint_epoch_3.pt (44.8 MB)"
+      },
+      {
+        "timestamp": "2026-11-14T11:22:25Z",
+        "stream": "stdout",
+        "message": "Epoch [4/5] - Loss: 0.5211 - Train Acc: 82.0% - Val Loss: 0.5912 - Val Acc: 80.5% - Rate: 328 img/s"
+      },
+      {
+        "timestamp": "2026-11-14T11:22:26Z",
+        "stream": "stdout",
+        "message": "[Checkpoint] Saved epoch checkpoint to /outputs/checkpoints/checkpoint_epoch_4.pt (44.8 MB)"
+      },
+      {
+        "timestamp": "2026-11-14T11:23:03Z",
+        "stream": "stdout",
+        "message": "Epoch [5/5] - Loss: 0.2842 - Train Acc: 90.8% - Val Loss: 0.3840 - Val Acc: 91.4% - Rate: 328 img/s"
+      },
+      {
+        "timestamp": "2026-11-14T11:23:04Z",
+        "stream": "stdout",
+        "message": "[Checkpoint] Saved final epoch checkpoint to /outputs/checkpoints/checkpoint_epoch_5.pt (44.8 MB)"
+      },
+      {
+        "timestamp": "2026-11-14T11:23:05Z",
+        "stream": "stdout",
+        "message": "[CGPU-Exporter] Writing /outputs/metrics.json and indexing artifacts for upload."
+      },
+      {
+        "timestamp": "2026-11-14T11:23:19Z",
+        "stream": "stdout",
+        "message": "[CGPU-Workload] Execution completed successfully with exit code 0."
+      }
+    ]
+  }
+}
+

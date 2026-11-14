@@ -1,0 +1,26 @@
+{
+  "status_code": 400,
+  "error": {
+    "error_code": "VALIDATION_FAILED",
+    "message": "The job submission payload failed validation checks.",
+    "details": [
+      {
+        "field": "requested_vram_mib",
+        "rejected_value": -1024,
+        "message": "requested_vram_mib must be a positive integer greater than 0."
+      },
+      {
+        "field": "workload_id",
+        "rejected_value": "unregistered-custom-script",
+        "message": "workload_id 'unregistered-custom-script' is not in the approved workload catalog. Available workloads: ['pytorch-resnet18-cifar10', 'pytorch-bert-finetuning', 'synthetic-gpu-burn']."
+      },
+      {
+        "field": "request_id",
+        "rejected_value": "not-a-valid-uuid",
+        "message": "request_id must be a valid RFC 4122 UUIDv4 string."
+      }
+    ],
+    "timestamp": "2026-11-14T11:21:30Z"
+  }
+}
+

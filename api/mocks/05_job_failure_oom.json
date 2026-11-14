@@ -1,0 +1,64 @@
+{
+  "status_code": 200,
+  "data": {
+    "job_id": "job-f1503921-bc74-4b52-9cb0-1845bb08a120",
+    "request_id": "req-8201bcf4-411a-4288-9ef4-d3a7719f2d12",
+    "name": "overallocated-batch-job",
+    "workload_id": "pytorch-resnet18-cifar10",
+    "status": "FAILED",
+    "sub_status": "TERMINATED",
+    "pending_reason": null,
+    "pending_details": null,
+    "failure_reason": "CUDA_OUT_OF_MEMORY",
+    "failure_details": {
+      "exit_code": 137,
+      "error_message": "RuntimeError: CUDA out of memory. Tried to allocate 512.00 MiB (GPU 0; 6.00 GiB total capacity; 1.84 GiB already allocated; 96.00 MiB free; 1.95 GiB reserved in total by PyTorch). Exceeded CGPU virtual slice quota of 2048 MiB.",
+      "stacktrace": "Traceback (most recent call last):\n  File \"/app/train.py\", line 142, in train_epoch\n    outputs = model(inputs)\n  File \"/usr/local/lib/python3.10/dist-packages/torch/nn/modules/module.py\", line 1532, in _call_impl\n    return forward_call(*args, **kwargs)\n  File \"/usr/local/lib/python3.10/dist-packages/torchvision/models/resnet.py\", line 285, in forward\n    return self._forward_impl(x)\n  File \"/usr/local/lib/python3.10/dist-packages/torchvision/models/resnet.py\", line 271, in _forward_impl\n    x = self.layer3(x)\ntorch.cuda.OutOfMemoryError: CUDA out of memory.",
+      "terminated_at": "2026-11-14T11:22:15Z"
+    },
+    "requested_vram_mib": 2048,
+    "priority": 5,
+    "parameters": {
+      "epochs": 5,
+      "batch_size": 512,
+      "learning_rate": 0.001,
+      "optimizer": "adam"
+    },
+    "dataset": {
+      "type": "builtin",
+      "name": "cifar10",
+      "uri": "builtin://cifar10"
+    },
+    "placement": {
+      "node_id": "wsl-worker-rtx4050-01",
+      "gpu_id": "gpu-nv-rtx4050-c89b3f",
+      "assigned_gpu_index": 0,
+      "allocated_vram_mib": 2048,
+      "enforcement_mode": "CGPU_VIRTUAL_CGROUP",
+      "placement_reason": "BEST_FIT_PACKING_FOUND",
+      "scheduled_at": "2026-11-14T11:21:00Z"
+    },
+    "telemetry": {
+      "status": "AVAILABLE",
+      "gpu_utilization_pct": 98,
+      "memory_used_mib": 2048,
+      "temperature_celsius": 74,
+      "power_watts": 54.0,
+      "sampled_at": "2026-11-14T11:22:14Z"
+    },
+    "execution_metrics": {
+      "final_loss": null,
+      "final_accuracy": null,
+      "peak_vram_mib": 2048,
+      "total_duration_seconds": 65.4
+    },
+    "artifacts": [],
+    "timestamps": {
+      "submitted_at": "2026-11-14T11:20:50Z",
+      "scheduled_at": "2026-11-14T11:21:00Z",
+      "started_at": "2026-11-14T11:21:10Z",
+      "completed_at": "2026-11-14T11:22:15Z"
+    }
+  }
+}
+
