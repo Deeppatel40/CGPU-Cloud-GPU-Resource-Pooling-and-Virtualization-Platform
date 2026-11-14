@@ -444,6 +444,14 @@ The evaluation will determine whether GPU resource pooling and virtualization ca
 
 > **Note:** Setup instructions will be added as the implementation progresses.
 
+### Cluster node documentation
+
+| Node | Record | Owner |
+| --- | --- | --- |
+| `cgpu-gpu-worker-4050` — RTX 4050 GPU worker (WSL 2) | [docs/gpu-worker-4050.md](docs/gpu-worker-4050.md) | Deep Patel ([@Deeppatel40](https://github.com/Deeppatel40)) |
+
+The RTX 4050 record covers Issues A1 (#7) and A2 (#9) for that node: hardware and device identifier, cluster-join configuration, the containerized CUDA setup with a reproduction recipe for the RTX 3050, and the four platform limits A3 and A4 must design around. Cross-machine coordination is logged in [COMMS.md](COMMS.md).
+
 ### Prerequisites
 
 * Linux-based system
