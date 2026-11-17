@@ -1,6 +1,6 @@
 # CGPU Workload Submission & Execution Reference (A3 Handoff)
 
-**Audience:** Application Pair (Nirav Shah [@NiravShah1729](https://github.com/NiravShah1729) & Subrat Jain [@CodexKnight-ai](https://github.com/CodexKnight-ai))  
+**Audience:** Application Pair (Nirav Shah [@NiravShah1729](https://github.com/NiravShah1729) & Subrat Jain [@subrat-j](https://github.com/subrat-j))  
 **Authors:** Nishit Patel ([@Nishit1006](https://github.com/Nishit1006)) & Deep Patel ([@Deeppatel40](https://github.com/Deeppatel40))  
 **Date:** 14 November 2026  
 **Satisfies:** Criterion 9 of Issue #18 (A3)
