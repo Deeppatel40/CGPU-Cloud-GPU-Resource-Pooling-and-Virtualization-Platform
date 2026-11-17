@@ -1,0 +1,17 @@
+[Unit]
+Description=CGPU Web Portal (Next.js)
+After=network-online.target cgpu-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=g6
+WorkingDirectory=/home/g6/cgpu-app/portal
+# CGPU_API_URL is baked in at build time (npm run build); the default is http://localhost:8080.
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
