@@ -89,7 +89,9 @@ Dispatched when a job finishes or fails:
 
 ## 3. Kubernetes Job Manifest Template
 
-When `status == PLACED`, instantiate the template located at [`deploy/templates/cgpu-workload-template.yaml`](../deploy/templates/cgpu-workload-template.yaml):
+When `status == PLACED`, instantiate the template located at [`deploy/templates/cgpu-workload-template.yaml`](../deploy/templates/cgpu-workload-template.yaml).
+
+> **Update (B2 / #12):** the CGPU API (`cmd/cgpu-api`) now renders this template itself for every placed job. It is a Go `text/template` (fields in `jobs.TemplateData`) that also creates a per-job Secret (parameters at `/etc/cgpu/params.json`, upload token), runs jobs in namespace `cgpu-jobs`, sets `activeDeadlineSeconds` from `timeout_seconds`, uploads `/outputs` to the API when the workload exits, and pins `PYTORCH_CUDA_ALLOC_CONF=backend:native`. The excerpt below shows the original A3 hand-off shape.
 
 ```yaml
 apiVersion: batch/v1

@@ -1,0 +1,25 @@
+[Unit]
+Description=CGPU REST API & Job Manager
+After=network-online.target mongod.service
+Wants=network-online.target mongod.service
+
+[Service]
+Type=simple
+User=g6
+WorkingDirectory=/home/g6/cgpu-app
+ExecStart=/home/g6/cgpu-app/bin/cgpu-api
+Restart=always
+RestartSec=3
+# Job logs and checkpoints live here; systemd creates it owned by g6.
+StateDirectory=cgpu
+Environment=CGPU_ARTIFACTS_DIR=/var/lib/cgpu/artifacts
+Environment=CGPU_API_LISTEN=:8080
+Environment=CGPU_PUBLIC_URL=http://10.20.24.32:8080
+Environment=CGPU_SCHEDULER_URL=http://10.20.24.31:8082
+Environment=CGPU_MONGO_URI=mongodb://127.0.0.1:27017
+Environment=CGPU_KUBECONFIG=/etc/cgpu/api-kubeconfig
+Environment=CGPU_NAMESPACE=cgpu-jobs
+Environment=CGPU_JOB_TEMPLATE=/home/g6/cgpu-app/deploy/templates/cgpu-workload-template.yaml
+
+[Install]
+WantedBy=multi-user.target
