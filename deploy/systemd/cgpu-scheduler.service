@@ -11,6 +11,11 @@ ExecStart=/home/g6/CGPU/bin/cgpu-scheduler
 Restart=always
 RestartSec=3
 Environment=PORT=8082
+# Reservations and the queue survive restarts here; systemd creates /var/lib/cgpu owned by g6.
+StateDirectory=cgpu
+Environment=CGPU_STATE_FILE=/var/lib/cgpu/scheduler-state.json
+# The reconciler shells out to kubectl (K3s writes a world-readable kubeconfig).
+Environment=KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
 [Install]
 WantedBy=multi-user.target
