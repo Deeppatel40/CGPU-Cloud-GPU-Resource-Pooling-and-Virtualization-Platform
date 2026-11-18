@@ -30,6 +30,21 @@ LABEL description="Sustained tiled SGEMM to demonstrate GPU pooling, sharing and
 ENV NVIDIA_VISIBLE_DEVICES=all \
     NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
+# The shared Job template appends `python /opt/cgpu-tools/upload.py /outputs` after the
+# workload to collect artifacts, so an image without `python` on PATH cannot upload its
+# results - and the failure is quiet, because the template swallows it with `|| echo`.
+# Observed exactly that on the first cluster run: the workload finished with RESULT=OK and
+# then logged "/bin/sh: 1: python: not found".
+#
+# python3-minimal plus a `python` link is the smallest thing that satisfies the contract
+# (~12 MB). The alternative - changing the template to call python3 - would have to be
+# right for every workload image, including the conda-based ResNet one, so fixing this
+# image is the narrower change.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3-minimal \
+    && ln -sf /usr/bin/python3 /usr/bin/python \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY build/cgpu_matmul /usr/local/bin/cgpu_matmul
 
 # Mount points the platform's Job template provides: parameters in, results out.
