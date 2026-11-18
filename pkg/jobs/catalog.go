@@ -60,6 +60,33 @@ func DefaultCatalog(smoke bool) map[string]*Workload {
 			Command: []string{"python", "/app/train.py"},
 			GPU:     true,
 		},
+		// The light alternative to the ResNet workload, for showing pooling, sharing and
+		// quota enforcement without the training setup. A 353 MB image against 11.9 GB and
+		// no dataset: the ResNet demo needs a 170 MB download whose upstream host serves at
+		// a few hundred bytes per second, so this one reaches a saturated GPU in seconds.
+		//
+		// Measured on the RTX 4050: ~850 GFLOP/s alone at 100% utilisation and 50 W; two
+		// jobs sharing the card hold 100% between them at 296 + 282 GFLOP/s, which is the
+		// time-slicing behaviour visible in throughput rather than inferred.
+		//
+		// Parameters are read from /etc/cgpu/params.json by the workload itself, so no
+		// arguments are needed in Command.
+		"gpu-matmul": {
+			WorkloadID:     "gpu-matmul",
+			Name:           "GPU matmul benchmark",
+			Description:    "Sustained tiled SGEMM that saturates the GPU and reports achieved GFLOP/s. Needs no dataset, so it starts immediately; verifies its own arithmetic and writes metrics.json.",
+			DefaultVRAMMiB: 1024,
+			MinVRAMMiB:     256,
+			MaxVRAMMiB:     5629,
+			Parameters: []WorkloadParameter{
+				{Name: "matrix_size", Type: "integer", Default: 4096, Min: f64(256), Max: f64(16384), Description: "Side length N of the N x N matrices; work scales as N^3, memory as N^2. Shrinks automatically if it will not fit the VRAM quota"},
+				{Name: "seconds", Type: "integer", Default: 120, Min: f64(10), Max: f64(3600), Description: "How long to keep the GPU busy"},
+				{Name: "vram_mib", Type: "integer", Default: 0, Min: f64(0), Max: f64(5629), Description: "Optional cap on the working set, to hold a deliberate amount of VRAM (0 = size from matrix_size)"},
+			},
+			Image:   "cgpu/workloads/gpu-matmul:1.0.0",
+			Command: []string{"/usr/local/bin/cgpu_matmul"},
+			GPU:     true,
+		},
 	}
 	if smoke {
 		c["cgpu-pipeline-smoke"] = &Workload{
