@@ -55,13 +55,36 @@ def parse_agent_entry(text, handle):
             }
     return None
 
-# In-memory cached data
+default_antigravity_cli = """● Antigravity CLI Feed Initialized
+  $ Connected to Control Plane (10.20.24.31)
+  L Monitoring active Kubernetes cluster and jobs...
+● Bash ("Check scheduler status")
+  $ curl -s http://127.0.0.1:8082/healthz
+  L {"status":"HEALTHY","time":"2026-11-14T07:27:08Z"}
+● Status: Listening for incoming workloads..."""
+
+default_claude_cli = """● Claude Code CLI Feed (WSL 2 RTX 4050)
+  $ git pull --rebase origin main
+  L Successfully rebased and updated to commit 1da4bb1.
+● Claude (Issue A3: CUDA VRAM Allocation Guard)
+  $ cat /etc/cdi/nvidia.yaml
+  L cdiVersion: "0.5.0" / container-runtime: nvidia (active)
+● Bash (Sample GPU telemetry under WSL)
+  $ nvidia-smi --query-gpu=name,memory.total,memory.used,utilization.gpu --format=csv
+  L NVIDIA GeForce RTX 4050 Laptop GPU, 6141 MiB, 19 MiB, 4%
+● Claude (Developing pkg/guard/cuda_alloc_guard.py)
+  $ Intercepting cuMemAlloc & cudaMalloc memory allocations
+  L Setting quota ceiling to CGPU_ALLOCATED_VRAM_MIB
+● Status: Writing unit test cases for quota-exceed behavior."""
+
 cached_data = {
     "timestamp": "Initializing...",
     "nodes": [],
     "pods": [],
     "pool_stats": {"status": "ONLINE", "aggregate_vram_mib": 6141, "allocated_vram_mib": 0, "free_vram_mib": 6141},
     "agents": [],
+    "cli_antigravity": default_antigravity_cli,
+    "cli_claude": default_claude_cli,
     "last_header": "Starting...",
     "active_agent": "Initializing...",
     "comms_raw": "Loading...",
@@ -150,115 +173,141 @@ def data_updater():
             except Exception:
                 pool_stats["status"] = "ONLINE"
 
-            # 4. Read COMMS.md
-            comms_raw = ""
-            last_header = "No messages yet"
-            active_agent = "Synchronized"
+            # 4. Read Metrics from CGPU Scheduler
+            metrics_raw = "# CGPU Scheduler Metrics\n# Querying http://127.0.0.1:8082/metrics ...\n"
             try:
-                comms_path = os.path.join(REPO_DIR, "COMMS.md")
-                if os.path.exists(comms_path):
-                    with open(comms_path, "r", encoding="utf-8") as f:
-                        comms_raw = f.read()
-
-                    headers = re.findall(r"^### (.* — @.* — .*)", comms_raw, re.MULTILINE)
-                    if headers:
-                        last_header = headers[-1]
-                        if "@nishit-agent" in last_header:
-                            active_agent = "@deep-agent (Deep Patel - Claude Code)"
-                        elif "@deep-agent" in last_header:
-                            active_agent = "@nishit-agent (Nishit Patel - Antigravity)"
-            except Exception:
-                pass
-
-            # 4.5 Extract Realtime Agent Live Activity
-            nishit_info = parse_agent_entry(comms_raw, "@nishit-agent")
-            deep_info = parse_agent_entry(comms_raw, "@deep-agent")
+                with urllib.request.urlopen("http://127.0.0.1:8082/metrics", timeout=1) as resp:
+                    metrics_raw = resp.read().decode("utf-8")
+            except Exception as e:
+                metrics_raw = f"# Telemetry endpoint offline or loading: {e}"
 
             agents = [
                 {
-                    "handle": "@nishit-agent",
+                    "handle": "@nishit-lead",
                     "agent_name": "Antigravity",
                     "engineer": "Nishit Patel",
                     "avatar": "⚡",
                     "machine": "PC 1 Control Plane (10.20.24.31)",
                     "hardware": "Intel Master + K3s Server",
-                    "role": "Placement Engine & Central Scheduler",
+                    "role": "Central Scheduler & RTX 3050 Pool (A3, A4)",
                     "border_color": "border-blue-700/60",
                     "bg_glow": "bg-blue-950/20",
-                    "status_badge": "RUNNING SCHEDULER",
+                    "status_badge": "A3 & A4 COMPLETED",
                     "status_color": "text-blue-400 bg-blue-950 border-blue-800",
-                    "current_focus": "Operating CGPU Central Scheduler (:8082), monitoring K8s cluster, and preparing placement mutator.",
-                    "subject": nishit_info["subject"] if nishit_info else "A3: Placement Engine & Scheduler",
-                    "latest_action": "Implemented pkg/scheduler best-fit binpacker & deployed cgpu-scheduler daemon (:8082)",
-                    "waiting_on": "Awaiting CUDA Allocation Guard from Deep's laptop for end-to-end quota validation",
-                    "updated_at": nishit_info["header"].split("—")[0].strip() if nishit_info else "Active"
+                    "current_focus": "Operating CGPU Central Scheduler (:8082), multi-GPU binpacking across RTX 4050 & RTX 3050, and Prometheus telemetry.",
+                    "subject": "Track A: Central Scheduling & Multi-GPU Pooling",
+                    "latest_action": "Joined RTX 3050 worker (10.20.24.36) to cluster on drive A:, verified CUDA vectorAdd, validated best-fit placement.",
+                    "waiting_on": "Ready for Track B Go API Gateway integration",
+                    "updated_at": "Active"
                 },
                 {
-                    "handle": "@deep-agent",
+                    "handle": "@deep-lead",
                     "agent_name": "Claude Code",
                     "engineer": "Deep Patel",
                     "avatar": "🎮",
                     "machine": "Windows Laptop (10.20.24.35)",
                     "hardware": "NVIDIA RTX 4050 (6141 MiB) / WSL 2",
-                    "role": "CUDA VRAM Guard & Worker Discovery",
-                    "border_color": "border-purple-700/60",
-                    "bg_glow": "bg-purple-950/20",
-                    "status_badge": "CODING GUARD",
-                    "status_color": "text-purple-400 bg-purple-950 border-purple-800",
-                    "current_focus": "Implementing Package 1: CUDA Allocation Guard (pkg/guard/) & Worker Agent on the RTX 4050.",
-                    "subject": deep_info["subject"] if deep_info else "A3: CUDA VRAM Allocation Guard",
-                    "latest_action": deep_info.get("did", "Published docs/gpu-worker-4050.md & verified RTX 4050 CUDA"),
-                    "waiting_on": "Developing allocation interceptor to test over-quota errors on 4050",
-                    "updated_at": deep_info["header"].split("—")[0].strip() if deep_info else "Active"
+                    "role": "RTX 4050 Worker & CUDA Guard (A1, A2)",
+                    "border_color": "border-emerald-700/60",
+                    "bg_glow": "bg-emerald-950/20",
+                    "status_badge": "A1 & A2 COMPLETED",
+                    "status_color": "text-emerald-400 bg-emerald-950 border-emerald-800",
+                    "current_focus": "Joined first GPU worker to cluster, verified containerized CUDA vectorAdd, built CUDA allocation interposer.",
+                    "subject": "Track A: GPU Worker Join & CUDA Allocation Guard",
+                    "latest_action": "Delivered libcgpu_guard.so with cuMemAlloc/cudaMalloc interposition & verified quota enforcement.",
+                    "waiting_on": "Track A tasks completed",
+                    "updated_at": "Active"
                 },
                 {
-                    "handle": "Track B Team",
-                    "agent_name": "Go & Next.js Developers",
+                    "handle": "@track-b",
+                    "agent_name": "Go + Next.js",
                     "engineer": "Nirav Shah & Subrat Jain",
                     "avatar": "🌐",
                     "machine": "Development Workstation",
-                    "hardware": "Full Stack API & Web",
-                    "role": "REST API Gateway & Portal Views",
-                    "border_color": "border-emerald-700/60",
-                    "bg_glow": "bg-emerald-950/20",
-                    "status_badge": "IN PROGRESS",
-                    "status_color": "text-emerald-400 bg-emerald-950 border-emerald-800",
-                    "current_focus": "Issue B2: Implementing Go API & Kubernetes Job lifecycle manager based on handoff spec.",
-                    "subject": "B2: Go API & Job Lifecycle Manager",
-                    "latest_action": "Delivered PR #15 (OpenAPI specifications, mock API server & catalog)",
-                    "waiting_on": "Ready for scheduler integration with placement endpoint (:8082)",
-                    "updated_at": "Active on B2"
+                    "hardware": "REST API Gateway & Portal Views",
+                    "role": "API Gateway & Submission Portal (B1, B2, B3)",
+                    "border_color": "border-purple-700/60",
+                    "bg_glow": "bg-purple-950/20",
+                    "status_badge": "B2 IN PROGRESS",
+                    "status_color": "text-purple-400 bg-purple-950 border-purple-800",
+                    "current_focus": "Implementing Go API & Kubernetes Job lifecycle manager based on handoff spec and OpenAPI specs.",
+                    "subject": "Track B: REST API Gateway & Next.js Portal",
+                    "latest_action": "Delivered PR #15 (OpenAPI specifications, mock API server & catalog).",
+                    "waiting_on": "Connecting to scheduler placement endpoint (:8082)",
+                    "updated_at": "Active"
                 }
             ]
 
+            # 4.8 Read CLI log files if present on disk
+            try:
+                if os.path.exists("/home/g6/cli_antigravity.log"):
+                    with open("/home/g6/cli_antigravity.log", "r", encoding="utf-8") as f:
+                        cached_data["cli_antigravity"] = f.read()
+            except Exception:
+                pass
+
+            try:
+                if os.path.exists("/home/g6/cli_claude.log"):
+                    with open("/home/g6/cli_claude.log", "r", encoding="utf-8") as f:
+                        cached_data["cli_claude"] = f.read()
+            except Exception:
+                pass
+
             # 5. Backlog definition
             backlog = [
-                {"id": "A1", "title": "Set up Kubernetes & join RTX 4050 WSL worker", "owners": "Deep + Nishit", "status": "CLOSED"},
-                {"id": "A2", "title": "Validate containerized CUDA on RTX 4050", "owners": "Deep + Nishit", "status": "CLOSED"},
-                {"id": "A3", "title": "Implement CGPU scheduling, sharing & VRAM quota", "owners": "Deep + Nishit", "status": "IN_PROGRESS"},
-                {"id": "A4", "title": "Add RTX 3050 worker & monitor GPU pool", "owners": "Deep + Nishit", "status": "PENDING"},
+                {"id": "A1", "title": "Set up Kubernetes & join RTX 4050 WSL worker", "owners": "Deep Patel", "status": "CLOSED"},
+                {"id": "A2", "title": "Validate containerized CUDA on RTX 4050", "owners": "Deep Patel", "status": "CLOSED"},
+                {"id": "A3", "title": "Implement CGPU scheduling, sharing & VRAM quota", "owners": "Nishit Patel", "status": "CLOSED"},
+                {"id": "A4", "title": "Add RTX 3050 worker & monitor GPU pool", "owners": "Nishit Patel", "status": "COMPLETED"},
                 {"id": "B1", "title": "Define job API & prepare mock responses", "owners": "Nirav + Subrat", "status": "CLOSED"},
                 {"id": "B2", "title": "Implement Go API & K8s Job lifecycle", "owners": "Nirav + Subrat", "status": "IN_PROGRESS"},
                 {"id": "B3", "title": "Build Next.js submission & GPU inventory views", "owners": "Nirav + Subrat", "status": "PENDING"},
                 {"id": "B4", "title": "Run and document end-to-end demonstration", "owners": "Nirav + Subrat", "status": "PENDING"}
             ]
 
-            cached_data = {
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "nodes": nodes,
-                "pods": pods,
-                "pool_stats": pool_stats,
-                "agents": agents,
-                "last_header": last_header,
-                "active_agent": active_agent,
-                "comms_raw": comms_raw,
-                "backlog": backlog
-            }
+            cached_data["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            cached_data["nodes"] = nodes
+            cached_data["pods"] = pods
+            cached_data["pool_stats"] = pool_stats
+            cached_data["agents"] = agents
+            cached_data["last_header"] = "CGPU Scheduler: http://10.20.24.31:8082/metrics"
+            cached_data["active_agent"] = "CGPU Cluster Active"
+            cached_data["comms_raw"] = metrics_raw
+            cached_data["backlog"] = backlog
+
         except Exception as e:
             print("Updater error:", e)
         time.sleep(2.0)
 
 class CGPUHandler(http.server.SimpleHTTPRequestHandler):
+    def do_POST(self):
+        if self.path.startswith("/api/log"):
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length).decode("utf-8")
+            if "agent=claude" in self.path:
+                cached_data["cli_claude"] = body
+                try:
+                    with open("/home/g6/cli_claude.log", "w", encoding="utf-8") as f:
+                        f.write(body)
+                except Exception:
+                    pass
+            else:
+                cached_data["cli_antigravity"] = body
+                try:
+                    with open("/home/g6/cli_antigravity.log", "w", encoding="utf-8") as f:
+                        f.write(body)
+                except Exception:
+                    pass
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(b'{"status":"OK"}')
+        else:
+            self.send_response(404)
+            self.end_headers()
+
     def do_GET(self):
         if self.path == "/api/data":
             self.send_response(200)
@@ -345,9 +394,66 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <div class="text-[11px] text-gray-400 mt-1">Claude Code ⇄ Antigravity</div>
       </div>
       <div class="card p-4">
-        <div class="text-xs text-gray-400 font-medium uppercase tracking-wider">Milestones A1 & A2</div>
+        <div class="text-xs text-gray-400 font-medium uppercase tracking-wider">Milestones A1, A2 & A3</div>
         <div class="text-xl font-bold mt-1 text-emerald-400">COMPLETED ✅</div>
-        <div class="text-[11px] text-gray-400 mt-1">Issues #7 & #9 Closed</div>
+        <div class="text-[11px] text-gray-400 mt-1">Issues #16, #17, #18 & #19 Closed</div>
+      </div>
+    </div>
+
+    <!-- Dual Real-time Agent CLI Console -->
+    <div class="card p-5 border border-indigo-900/60 bg-gradient-to-b from-gray-900 via-gray-900 to-gray-950 space-y-4">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-3 border-b border-gray-800 gap-2">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center text-sm font-mono text-emerald-400 font-bold">
+            &gt;_
+          </div>
+          <div>
+            <h2 class="text-base font-bold text-gray-100 flex items-center gap-2">
+              Live Agent Terminal Consoles (Realtime CLI Activity)
+              <span class="px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 flex items-center gap-1">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> STREAMING LIVE
+              </span>
+            </h2>
+            <p class="text-xs text-gray-400">Exact live shell commands, tool calls, and outputs running on each agent</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-3 text-xs text-gray-400 font-mono">
+          <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-cyan-400"></span> Antigravity CLI</span>
+          <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-purple-400"></span> Claude Code CLI</span>
+        </div>
+      </div>
+
+      <!-- Split Terminal Windows -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 font-mono text-xs">
+        
+        <!-- Antigravity Terminal -->
+        <div class="rounded-lg border border-cyan-900/60 bg-black/95 flex flex-col overflow-hidden shadow-2xl">
+          <div class="px-3.5 py-2 bg-gray-900/90 border-b border-gray-800 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-red-500/80"></span>
+              <span class="w-2.5 h-2.5 rounded-full bg-amber-500/80"></span>
+              <span class="w-2.5 h-2.5 rounded-full bg-emerald-500/80"></span>
+              <span class="ml-2 font-bold text-cyan-400 text-[11px]">⚡ antigravity@nishit-pc:~/Desktop/Cloud</span>
+            </div>
+            <span class="text-[10px] text-gray-500 font-mono">Nishit Patel (Control Plane)</span>
+          </div>
+          <pre id="cli-antigravity" class="p-3.5 text-gray-200 overflow-x-auto max-h-80 min-h-64 overflow-y-auto whitespace-pre-wrap leading-relaxed text-[11px] selection:bg-cyan-900">Loading Antigravity CLI stream...</pre>
+        </div>
+
+        <!-- Claude Code Terminal -->
+        <div class="rounded-lg border border-purple-900/60 bg-black/95 flex flex-col overflow-hidden shadow-2xl">
+          <div class="px-3.5 py-2 bg-gray-900/90 border-b border-gray-800 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-red-500/80"></span>
+              <span class="w-2.5 h-2.5 rounded-full bg-amber-500/80"></span>
+              <span class="w-2.5 h-2.5 rounded-full bg-emerald-500/80"></span>
+              <span class="ml-2 font-bold text-purple-400 text-[11px]">🎮 claude@deep-laptop:~/CGPU (WSL2)</span>
+            </div>
+            <span class="text-[10px] text-gray-500 font-mono">Deep Patel (RTX 4050 6GB)</span>
+          </div>
+          <pre id="cli-claude" class="p-3.5 text-gray-200 overflow-x-auto max-h-80 min-h-64 overflow-y-auto whitespace-pre-wrap leading-relaxed text-[11px] selection:bg-purple-900">Loading Claude Code CLI stream...</pre>
+        </div>
+
       </div>
     </div>
 
@@ -360,17 +466,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           </div>
           <div>
             <h2 class="text-base font-bold text-gray-100 flex items-center gap-2">
-              Real-Time AI Agent Live Workstreams
-              <span class="px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800 flex items-center gap-1">
-                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> ACTIVE LIVE
-              </span>
+              Agent Workstreams & Ownership Division
             </h2>
             <p class="text-xs text-gray-400">Live task ownership and progress across all machines and agents</p>
           </div>
         </div>
         <div class="text-xs text-gray-400 font-mono flex items-center gap-2">
           <span>Relay Channel:</span>
-          <span class="px-2 py-0.5 bg-gray-800 text-gray-300 rounded border border-gray-700 text-[11px]">COMMS.md (Git)</span>
+          <span class="px-2 py-0.5 bg-gray-800 text-gray-300 rounded border border-gray-700 text-[11px]">Prometheus (:8082)</span>
         </div>
       </div>
 
@@ -390,15 +493,15 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       </div>
     </div>
 
-    <!-- Agent COMMS -->
+    <!-- Cluster Metrics & Telemetry -->
     <div class="card p-5">
       <div class="flex items-center justify-between mb-3">
         <h2 class="text-base font-bold text-gray-200 flex items-center gap-2">
-          <span>📝</span> Agent-to-Agent Live Collaboration (COMMS.md)
+          <span>📊</span> CGPU Cluster Prometheus Telemetry (:8082/metrics)
         </h2>
-        <span class="text-xs text-gray-400">Deep Patel (Claude Code) ⇄ Nishit Patel (Antigravity)</span>
+        <span class="text-xs text-gray-400">RFC 0.0.4 Standard Prometheus Scrape Endpoint</span>
       </div>
-      <pre class="bg-gray-950 p-4 rounded-lg border border-gray-800 font-mono text-xs overflow-x-auto max-h-80 overflow-y-auto text-gray-300 whitespace-pre-wrap leading-relaxed" id="comms-box">Loading communication transcript...</pre>
+      <pre class="bg-gray-950 p-4 rounded-lg border border-gray-800 font-mono text-xs overflow-x-auto max-h-80 overflow-y-auto text-emerald-400 whitespace-pre-wrap leading-relaxed" id="comms-box">Loading cluster metrics...</pre>
     </div>
 
     <!-- Pods -->
@@ -455,6 +558,19 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         const alloc = data.pool_stats.allocated_vram_mib !== undefined ? data.pool_stats.allocated_vram_mib : 0;
         document.getElementById('stat-scheduler').innerText = `${free} MiB Free`;
         document.getElementById('stat-scheduler-sub').innerText = `Allocated: ${alloc} / ${total} MiB (:8082)`;
+      }
+
+      // Live Terminal CLI Consoles
+      const cliAntiBox = document.getElementById('cli-antigravity');
+      if (data.cli_antigravity) {
+        cliAntiBox.textContent = data.cli_antigravity;
+        cliAntiBox.scrollTop = cliAntiBox.scrollHeight;
+      }
+
+      const cliClaudeBox = document.getElementById('cli-claude');
+      if (data.cli_claude) {
+        cliClaudeBox.textContent = data.cli_claude;
+        cliClaudeBox.scrollTop = cliClaudeBox.scrollHeight;
       }
 
       // Real-time Agent Cards

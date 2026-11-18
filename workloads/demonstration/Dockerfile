@@ -16,9 +16,9 @@ RUN pip install --no-cache-dir torchvision
 COPY train.py /app/train.py
 
 # Create outputs mount directory
-RUN mkdir -p /outputs/checkpoints /etc/cgpu
+RUN mkdir -p /outputs/checkpoints /etc/cgpu /data/cifar10
 
-VOLUME ["/outputs", "/etc/cgpu"]
+VOLUME ["/outputs", "/etc/cgpu", "/data"]
 
 ENTRYPOINT ["python", "/app/train.py"]
 

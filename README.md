@@ -29,6 +29,9 @@
 
 ---
 
+> [!IMPORTANT]
+> 📖 **CSE540 Presentation & Demonstration Guide**: Read the complete zero-to-hero project briefing, architecture map, live demonstration runbook, and emergency troubleshooting manual in [**`PROJECT_GUIDE_AND_DEMO_PLAYBOOK.md`**](PROJECT_GUIDE_AND_DEMO_PLAYBOOK.md).
+
 ## Overview
 
 **CGPU (Cloud GPU)** is a cloud-based **GPU-as-a-Service (GPUaaS)** platform designed to efficiently manage, virtualize, and share GPU resources across multiple computing nodes.
@@ -440,9 +443,65 @@ The evaluation will determine whether GPU resource pooling and virtualization ca
 
 ---
 
+# 📁 Project Structure
+
+```text
+.
+├── cmd/
+│   ├── cgpu-scheduler/      # Placement daemon (PC 1, :8082): best-fit binpacking, queue, state file,
+│   │                        #   Kubernetes reconciler (node readiness, orphaned reservations), /metrics
+│   ├── cgpu-api/            # REST API & job manager (PC 2, :8080): MongoDB, K8s Job lifecycle, logs, artifacts
+│   └── cgpu-worker-agent/   # Per-GPU-worker discovery & telemetry daemon (:9400)
+├── pkg/
+│   ├── api/v1/              # Shared Go types: job API contract, scheduler hand-off, GPU inventory, errors
+│   ├── scheduler/           # Placement engine (+ state persistence) and its tests
+│   ├── jobs/                # Job manager: validation, idempotency, MongoDB store, kubectl, artifacts, HTTP
+│   └── guard/               # libcgpu_guard.so — CUDA allocation interposer enforcing per-job VRAM quotas
+├── portal/                  # Next.js 15 web portal (PC 2, :3000): submit, job history/detail, live logs, GPU pool
+├── api/
+│   ├── openapi/             # OpenAPI 3.0 contract (issue #8)
+│   └── mocks/               # Python mock server + the 9 canonical response scenarios
+├── deploy/
+│   ├── templates/           # Shared Kubernetes Job template rendered for every placed job
+│   ├── k8s/                 # Scheduler manifest, least-privilege RBAC for the API (namespace cgpu-jobs)
+│   └── systemd/             # cgpu-scheduler, cgpu-api, cgpu-portal units
+├── workloads/
+│   ├── demonstration/       # ResNet-18 / CIFAR-10 training workload (Dockerfile + train.py)
+│   └── tools/               # upload.py (artifact upload, mounted into every job), smoke.py (CPU pipeline check)
+├── scripts/                 # status.sh, dashboard.py, make-api-kubeconfig.sh, e2e_demo.py (#14 evidence)
+├── test/e2e/gpu/            # Guard quota / isolation / bypass tests run on the GPU workers
+└── docs/                    # Node records, A3 guard evidence, API spec, hand-off guides, e2e runbook
+```
+
 # 🚀 Getting Started
 
-> **Note:** Setup instructions will be added as the implementation progresses.
+### Running services
+
+| Service | Host | Port | Unit |
+| --- | --- | --- | --- |
+| Web portal | Ubuntu PC 2 (`10.20.24.32`) | 3000 | `cgpu-portal` |
+| REST API & job manager | Ubuntu PC 2 | 8080 | `cgpu-api` (MongoDB on localhost:27017) |
+| Scheduler & metrics | Ubuntu PC 1 (`10.20.24.31`) | 8082 | `cgpu-scheduler` |
+| LAN dashboard | Ubuntu PC 1 | 8081 | `cgpu-dashboard` |
+
+End-to-end demonstration runbook and evidence recorder: [docs/e2e-demonstration.md](docs/e2e-demonstration.md).
+
+### Build and test
+
+```bash
+go test -race ./pkg/...                       # scheduler + job manager
+go build -o bin/ ./cmd/...                    # cgpu-scheduler, cgpu-api, cgpu-worker-agent
+cd portal && npm ci && npm run typecheck && npm run build
+```
+
+### Cluster node documentation
+
+| Node | Record | Owner |
+| --- | --- | --- |
+| `cgpu-gpu-worker-4050` — RTX 4050 GPU worker (WSL 2) | [docs/gpu-worker-4050.md](docs/gpu-worker-4050.md) | Deep Patel ([@Deeppatel40](https://github.com/Deeppatel40)) |
+| `cgpu-gpu-worker-3050` — RTX 3050 GPU worker (WSL 2) | [docs/gpu-worker-3050.md](docs/gpu-worker-3050.md) | Nishit Patel ([@Nishit1006](https://github.com/Nishit1006)) |
+
+The RTX 4050 and RTX 3050 engineering records cover Issues A1 (#16), A2 (#17), and A4 (#19): hardware identifiers, cluster-join configuration, containerized CUDA validation, and multi-node best-fit binpacking.
 
 ### Cluster node documentation
 

@@ -5,7 +5,7 @@
 - **Issue**: [#8 — Issue B1: Define the job API and prepare mock responses](https://github.com/Deeppatel40/CGPU-Cloud-GPU-Resource-Pooling-and-Virtualization-Platform/issues/8)
 - **Owners**:
   - Nirav Shah ([@NiravShah1729](https://github.com/NiravShah1729)) — API Design & Go Backend
-  - Subrat Jain ([@CodexKnight-ai](https://github.com/CodexKnight-ai)) — Next.js Portal Integration & UI Contract
+  - Subrat Jain ([@subrat-j](https://github.com/subrat-j)) — Next.js Portal Integration & UI Contract
 - **Collaborators**:
   - Deep Patel ([@Deeppatel40](https://github.com/Deeppatel40)) — Placement Engine & Virtualization Layer
   - Nishit ([@Nishit1006](https://github.com/Nishit1006)) — Kubernetes Infrastructure & Node Management
@@ -14,7 +14,7 @@
 
 ## 1. Overview & Architecture Context
 
-The CGPU platform enables multi-tenant GPU sharing and virtualization across heterogeneous computing nodes (such as our RTX 4050 6GB WSL worker node from Issue #7). 
+The CGPU platform enables multi-tenant GPU sharing and virtualization across heterogeneous computing nodes (such as our RTX 4050 6GB WSL worker node from Issue #16). 
 
 This document defines the interface boundary and protocol contract connecting:
 1. **Next.js Web Portal** (Client UI)

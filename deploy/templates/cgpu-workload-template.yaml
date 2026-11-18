@@ -1,0 +1,150 @@
+# CGPU shared workload Job template.
+#
+# Rendered by the CGPU API (pkg/jobs, Go text/template) for every placed job. Fields come
+# from jobs.TemplateData. The per-job Secret carries the workload parameters (mounted at
+# /etc/cgpu/params.json) and the token the workload uses to upload its outputs.
+#
+# Guard rules (from A3, see docs/workload-submission-guide.md):
+#   - LD_PRELOAD libcgpu_guard.so with CGPU_ALLOCATED_VRAM_MIB = the scheduler's quota.
+#   - PYTORCH_CUDA_ALLOC_CONF is pinned to backend:native; expandable_segments bypasses the guard.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Name }}
+  namespace: {{ .Namespace }}
+  labels:
+    app.kubernetes.io/part-of: cgpu-platform
+    cgpu.io/job-id: {{ quote .JobID }}
+type: Opaque
+stringData:
+  params.json: {{ quote .ParamsJSON }}
+  upload-token: {{ quote .UploadToken }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Name }}
+  namespace: {{ .Namespace }}
+  labels:
+    app.kubernetes.io/part-of: cgpu-platform
+    cgpu.io/job-id: {{ quote .JobID }}
+    cgpu.io/workload: {{ quote .WorkloadID }}
+  annotations:
+    cgpu.io/allocated-vram-mib: "{{ .AllocatedVRAMMiB }}"
+    cgpu.io/assigned-gpu-id: {{ quote .AssignedGPUID }}
+    cgpu.io/assigned-node: {{ quote .AssignedNode }}
+    cgpu.io/enforcement-mode: "CUDA_INTERCEPTOR"
+spec:
+  # One attempt only: a retry would run outside the scheduler's accounting.
+  backoffLimit: 0
+  activeDeadlineSeconds: {{ .TimeoutSeconds }}
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: cgpu-platform
+        cgpu.io/job-id: {{ quote .JobID }}
+    spec:
+      restartPolicy: Never
+      # The scheduler already chose the node and GPU; bypass the Kubernetes scheduler.
+      nodeName: {{ .AssignedNode }}
+      automountServiceAccountToken: false
+{{- if .GPU }}
+      runtimeClassName: nvidia
+{{- end }}
+      # WSL2 GPU workers use mirrored host networking; pod overlay networking is not
+      # reliable there, and the workload must reach the API to upload its outputs.
+      hostNetwork: true
+      dnsPolicy: Default
+      containers:
+        - name: workload
+          image: {{ quote .Image }}
+          imagePullPolicy: IfNotPresent
+          # Run the workload, then upload /outputs whatever the exit code, and keep the
+          # workload's exit code as the container's.
+          command: ["/bin/sh", "-c"]
+          args:
+            - {{ quote (printf "%s; rc=$?; python /opt/cgpu-tools/upload.py /outputs || echo '[CGPU] artifact upload failed' >&2; exit $rc" .CommandShell) }}
+          env:
+            - name: CGPU_JOB_ID
+              value: {{ quote .JobID }}
+            - name: CGPU_ALLOCATED_VRAM_MIB
+              value: "{{ .AllocatedVRAMMiB }}"
+            - name: CGPU_API_URL
+              value: {{ quote .APIURL }}
+            - name: CGPU_UPLOAD_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Name }}
+                  key: upload-token
+            - name: PYTHONUNBUFFERED
+              value: "1"
+{{- if .GPU }}
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: "all"
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: "compute,utility"
+            - name: LD_PRELOAD
+              value: "/opt/cgpu/libcgpu_guard.so"
+            - name: CGPU_GUARD_STATUS_FILE
+              value: "/var/run/cgpu/guard/{{ .JobID }}.json"
+            - name: CGPU_GUARD_VERBOSE
+              value: "1"
+            # Pinned, not just omitted: the expandable_segments option allocates through
+            # cuMemCreate and escapes the guard (docs/a3-guard-evidence.md, criterion 5).
+            # Setting it here overrides any default baked into the image.
+            - name: PYTORCH_CUDA_ALLOC_CONF
+              value: "backend:native"
+{{- end }}
+          volumeMounts:
+            - name: params
+              mountPath: /etc/cgpu
+              readOnly: true
+            - name: outputs
+              mountPath: /outputs
+            - name: tools
+              mountPath: /opt/cgpu-tools
+              readOnly: true
+            # PyTorch DataLoader workers need more than the 64 MiB default /dev/shm.
+            - name: dshm
+              mountPath: /dev/shm
+{{- if .GPU }}
+            # Datasets are cached per node so each job does not re-download CIFAR-10.
+            - name: datasets
+              mountPath: /data
+            - name: cgpu-guard
+              mountPath: /opt/cgpu
+              readOnly: true
+            - name: cgpu-status
+              mountPath: /var/run/cgpu/guard
+{{- end }}
+      volumes:
+        - name: params
+          secret:
+            secretName: {{ .Name }}
+            items:
+              - key: params.json
+                path: params.json
+        - name: outputs
+          emptyDir: {}
+        - name: tools
+          configMap:
+            name: cgpu-tools
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi
+{{- if .GPU }}
+        - name: datasets
+          hostPath:
+            path: /var/lib/cgpu/datasets
+            type: DirectoryOrCreate
+        - name: cgpu-guard
+          hostPath:
+            path: /opt/cgpu
+            type: Directory
+        - name: cgpu-status
+          hostPath:
+            path: /var/run/cgpu/guard
+            type: DirectoryOrCreate
+{{- end }}

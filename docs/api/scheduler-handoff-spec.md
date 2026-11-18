@@ -1,6 +1,6 @@
 # CGPU Scheduler & Placement Component Handoff Specification
 
-- **Target Audience**: Deep Patel ([@Deeppatel40](https://github.com/Deeppatel40)), Nishit ([@Nishit1006](https://github.com/Nishit1006)), Nirav Shah ([@NiravShah1729](https://github.com/NiravShah1729)), Subrat Jain ([@CodexKnight-ai](https://github.com/CodexKnight-ai))
+- **Target Audience**: Deep Patel ([@Deeppatel40](https://github.com/Deeppatel40)), Nishit ([@Nishit1006](https://github.com/Nishit1006)), Nirav Shah ([@NiravShah1729](https://github.com/NiravShah1729)), Subrat Jain ([@subrat-j](https://github.com/subrat-j))
 - **Related Issue**: [#8 (Issue B1: Job API Contract)](https://github.com/Deeppatel40/CGPU-Cloud-GPU-Resource-Pooling-and-Virtualization-Platform/issues/8)
 - **Status**: Formatted for Collaboration Agreement
 
@@ -8,7 +8,7 @@
 
 ## 1. Context & Motivation
 
-In Issue #7 (Issue A1), Nishit and Deep bring up the Kubernetes cluster and register worker nodes, including the RTX 4050 6GB Laptop GPU running under WSL2.
+In Issue #16 (Issue A1), Deep bring up the Kubernetes cluster and register worker nodes, including the RTX 4050 6GB Laptop GPU running under WSL2.
 In Issue #8 (Issue B1), we establish the formal handoff contract between the Go API Gateway / Job Manager and the CGPU Placement Component / Scheduler.
 
 This contract ensures that:

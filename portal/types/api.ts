@@ -67,6 +67,10 @@ export interface GPUTelemetrySample {
   memory_used_mib?: number | null;
   temperature_celsius?: number | null;
   power_watts?: number | null;
+  /** Alias used by the GPU inventory mock (07_gpu_inventory.json); prefer power_watts. */
+  power_draw_watts?: number | null;
+  /** Alias used in the spec's inventory example; prefer gpu_utilization_pct. */
+  utilization_pct?: number | null;
   sampled_at: string;
 }
 
@@ -225,3 +229,49 @@ export interface ErrorResponse {
   timestamp: string;
 }
 
+
+// ---------------------------------------------------------------------------
+// Additions for the Next.js portal (Issue #13 / B3)
+// ---------------------------------------------------------------------------
+
+export type WorkloadParameterType = 'integer' | 'number' | 'string' | 'enum';
+
+export interface WorkloadParameter {
+  name: string;
+  type: WorkloadParameterType;
+  default: number | string;
+  min?: number;
+  max?: number;
+  options?: string[];
+  description: string;
+}
+
+/** Entry of the approved workload catalog served by GET /api/v1/workloads. */
+export interface WorkloadDefinition {
+  workload_id: string;
+  name: string;
+  description: string;
+  default_vram_mib: number;
+  min_vram_mib: number;
+  max_vram_mib: number;
+  parameters: WorkloadParameter[];
+}
+
+/** GET /api/v1/workloads */
+export interface WorkloadListResponse {
+  items: WorkloadDefinition[];
+}
+
+/** GET /api/v1/jobs/{job_id}/artifacts */
+export interface ArtifactListResponse {
+  job_id: string;
+  artifacts: ArtifactMetadata[];
+}
+
+/** Query parameters accepted by GET /api/v1/jobs */
+export interface JobListQuery {
+  status?: JobState;
+  workload_id?: string;
+  page?: number;
+  limit?: number;
+}

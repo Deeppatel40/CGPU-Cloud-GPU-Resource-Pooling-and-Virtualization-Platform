@@ -2,7 +2,7 @@
 
 **Node:** `cgpu-gpu-worker-4050`
 **Owner / engineer:** Deep Patel ([@Deeppatel40](https://github.com/Deeppatel40))
-**Covers:** Issue A1 (#7) and Issue A2 (#9), the parts performed on the RTX 4050 laptop
+**Covers:** Issue A1 (#16) and Issue A2 (#17), the parts performed on the RTX 4050 laptop
 **Date:** 14 November 2026
 
 This is the authoritative record for the first GPU worker in the CGPU cluster: how it was built, what was proven, and the platform limits that A3 and A4 must design around. Everything below was produced and verified on this machine; the provenance section lists the commits.
@@ -165,4 +165,4 @@ Authored by Deep Patel (@Deeppatel40). The findings above were produced on the R
 | `18cf128` | Containerized CUDA validated on the RTX 4050, with the reproduction recipe |
 | `82b5dc2` | Measured the WSL telemetry limits; flagged the host disk constraint |
 
-Cross-machine coordination with the control-plane work is logged chronologically in [`COMMS.md`](../COMMS.md).
+Authored by Deep Patel ([@Deeppatel40](https://github.com/Deeppatel40)) on the RTX 4050 laptop. Cross-machine coordination with the control-plane work is logged chronologically in [`COMMS.md`](../COMMS.md).

@@ -2,7 +2,7 @@
 
 CGPU's own `LD_PRELOAD` interposer for enforcing a per-workload VRAM quota.
 
-**Owner:** Deep Patel ([@Deeppatel40](https://github.com/Deeppatel40)) — Issue A3 (#10), Package 1.
+**Owner:** Deep Patel ([@Deeppatel40](https://github.com/Deeppatel40)) — Issue A3 (#18), Package 1.
 
 Not derived from HAMi or HAMi-Core. No HAMi code, headers or resource field names are used.
 
