@@ -1,0 +1,314 @@
+/* ============================================================================
+   CGPU signature theme
+   ============================================================================
+   A separate layer imported after globals.css, rather than edits inside it, so
+   the base stylesheet stays intact and the theme can be removed by deleting
+   this file and its import in layout.tsx. Everything here is either a token
+   redefinition or an additive rule - no existing rule is rewritten.
+
+   Design intent: a near-black instrument panel with a single high-energy green
+   accent, hairline borders and tabular monospace numerals. The GPU numbers are
+   the content, so they carry the emphasis and the chrome stays quiet. The
+   accent is reserved for live/healthy state and primary actions and is never
+   used as decoration, so a green glow on this page always means something.
+
+   Motion is used only to separate live data from a still screenshot: a
+   breathing dot on work in flight, VRAM bars that fill rather than snap, a
+   shimmer while fetching. All of it collapses under prefers-reduced-motion at
+   the end of this file, where the rationale is noted.
+   ========================================================================== */
+
+:root {
+  --bg: #08090a;
+  --surface: #111315;
+  --surface-2: #171a1d;
+  --border: #262b30;
+  --text: #e8ecef;
+  --muted: #8b949d;
+
+  /* Signature accent. Healthy/live state and primary actions only. */
+  --accent: #76b900;
+  --accent-dim: #5d9200;
+  --accent-ink: #06160a;
+  --accent-glow: rgba(118, 185, 0, 0.35);
+
+  --ok: #76b900;
+  --warn: #f5a623;
+  --err: #ff5d52;
+  --info: #35c4e8;
+  --neutral: #8b949d;
+
+  --reserved: #76b900;
+  --measured: #f5a623;
+  --free: #1e2327;
+  --driver: #3a4248;
+
+  --code-bg: #050607;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f4f6f4;
+    --surface: #ffffff;
+    --surface-2: #eef1ee;
+    --border: #dbe0db;
+    --text: #12171a;
+    --muted: #5b6670;
+    --accent: #5d9200;
+    --accent-dim: #4a7500;
+    --accent-ink: #ffffff;
+    --accent-glow: rgba(93, 146, 0, 0.22);
+    --ok: #4a7500;
+    --warn: #b07400;
+    --err: #d33a30;
+    --info: #1283a8;
+    --reserved: #5d9200;
+    --free: #e2e7e2;
+    --driver: #aab2aa;
+    --code-bg: #0a0d10;
+    --shadow: 0 1px 2px rgba(20, 30, 20, 0.08);
+    color-scheme: light;
+  }
+}
+
+body {
+  /* Faint accent wash from the top so the page does not read as flat black. */
+  background-image: radial-gradient(900px 400px at 50% -200px, rgba(118, 185, 0, 0.07), transparent 70%);
+  background-repeat: no-repeat;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- chrome -------------------------------------------------------------- */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: rgba(8, 9, 10, 0.82);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+@media (prefers-color-scheme: light) {
+  .topbar {
+    background: rgba(255, 255, 255, 0.85);
+  }
+}
+/* Hairline accent under the header: the one piece of pure decoration. */
+.topbar::after {
+  content: "";
+  display: block;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: 0.55;
+}
+
+.brand-mark {
+  box-shadow: 0 0 0 1px var(--border), 0 0 18px -4px var(--accent-glow);
+}
+
+.nav-link {
+  position: relative;
+  border-radius: 6px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.nav-link.active::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+/* ---- surfaces ------------------------------------------------------------ */
+
+.card,
+.node,
+.tile {
+  transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+}
+.card:hover,
+.node:hover {
+  border-color: var(--accent-dim);
+}
+.tile:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px -12px rgba(0, 0, 0, 0.9);
+}
+
+/* The numbers are the content: tabular figures stop digits jittering as
+   values refresh in place. */
+.tile-value,
+.vram-stat,
+.kv dd {
+  font-variant-numeric: tabular-nums;
+}
+.tile-label {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+/* An offline node should look inert, not merely be labelled offline. */
+.node.offline {
+  opacity: 0.72;
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 10px,
+    rgba(255, 255, 255, 0.015) 10px 20px
+  );
+}
+
+/* ---- status: motion that carries meaning --------------------------------- */
+
+/* Live badges breathe; settled ones (SUCCEEDED, FAILED, OFFLINE) stay still,
+   so movement anywhere on screen means something is currently in flight. */
+.badge.pulse::before {
+  animation: cgpu-breathe 1.8s ease-in-out infinite;
+}
+@keyframes cgpu-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 currentColor;
+    opacity: 1;
+  }
+  50% {
+    box-shadow: 0 0 0 4px transparent;
+    opacity: 0.55;
+  }
+}
+
+/* A healthy dot gets a steady halo - present but not animated, so the page is
+   calm when everything is simply fine. */
+.badge.ok::before {
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
+/* VRAM bars animate to a new width instead of snapping, which makes a
+   reservation landing or being released visible as it happens. */
+.vbar-seg {
+  transition: width 0.55s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.vbar-seg.reserved {
+  background-image: repeating-linear-gradient(
+    115deg,
+    rgba(255, 255, 255, 0.14) 0 8px,
+    transparent 8px 16px
+  );
+  background-size: 200% 100%;
+  animation: cgpu-flow 2.4s linear infinite;
+}
+@keyframes cgpu-flow {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* Loading shimmer: separates "fetching" from "there is no data", which the
+   portal otherwise renders almost identically. */
+.skeleton {
+  position: relative;
+  min-height: 56px;
+  border-radius: var(--radius);
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--border) 37%, var(--surface-2) 63%);
+  background-size: 400% 100%;
+  animation: cgpu-shimmer 1.4s ease-in-out infinite;
+  color: transparent;
+}
+@keyframes cgpu-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: 0 0;
+  }
+}
+
+/* "unavailable" is missing data, not a failure. Understating it keeps a real
+   error visible as the only red thing on the same screen. */
+.unavailable {
+  color: var(--muted);
+  font-style: italic;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  cursor: help;
+}
+
+/* ---- controls ------------------------------------------------------------ */
+
+.btn {
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.08s ease, box-shadow 0.15s ease;
+}
+.btn:active {
+  transform: translateY(1px);
+}
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 650;
+}
+.btn.primary:hover:not(:disabled) {
+  background: var(--accent-dim);
+  box-shadow: 0 0 20px -6px var(--accent-glow);
+}
+
+:where(a, button, input, select, textarea):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.field input,
+.field select {
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.field input:focus,
+.field select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+/* ---- logs ---------------------------------------------------------------- */
+
+.logbox {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.logbox::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.logbox::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 6px;
+}
+.logline.stderr {
+  border-left: 2px solid var(--err);
+  padding-left: 8px;
+}
+
+/* ---- accessibility ------------------------------------------------------- */
+
+/* Every animation above reinforces state that is also stated in text, so
+   removing motion loses no information. Honour the preference rather than
+   treating it as optional: a pulsing dot is exactly what this setting exists
+   to suppress. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .skeleton {
+    background: var(--surface-2);
+  }
+}

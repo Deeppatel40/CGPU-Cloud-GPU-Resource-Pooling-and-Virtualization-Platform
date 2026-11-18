@@ -1,6 +1,9 @@
 import type { Metadata, Viewport } from 'next';
 import Nav from '@/components/Nav';
 import './globals.css';
+// Imported after globals.css on purpose: theme.css is an override layer, so it
+// must win on equal specificity. Delete this line to revert to the base palette.
+import './theme.css';
 
 export const metadata: Metadata = {
   title: { default: 'CGPU Portal', template: '%s · CGPU Portal' },

@@ -1,0 +1,253 @@
+# Prometheus for CGPU
+# =============================================================================
+# The README lists "Prometheus + Grafana" as the monitoring stack, but until now
+# nothing scraped anything: what existed were two Prometheus-format endpoints
+# (the scheduler on :8082/metrics and cgpu-worker-agent on :9400/metrics) and a
+# hand-written HTML dashboard. Endpoints are not monitoring - without a scraper
+# there is no history, so "was the GPU saturated during that job?" cannot be
+# answered after the job ends. This adds the missing half.
+#
+# Owner / engineer: Deep Patel (@Deeppatel40)
+#
+# Design note - why Kubernetes service discovery instead of static targets:
+#   The obvious scrape_config is a static list of worker IPs. That is exactly
+#   the mistake that currently breaks portal telemetry: the GPU workers are
+#   laptops on Wi-Fi, their addresses change on every rejoin, and a hardcoded
+#   10.20.24.35 silently stops matching reality. Using `role: node` means
+#   Prometheus asks the API server where the workers are, every scrape, so a
+#   laptop can rejoin on any address and keep being monitored.
+#
+# Apply:
+#   kubectl apply -f deploy/monitoring/prometheus.yaml
+#   # then browse http://<any-node>:30090
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cgpu-monitoring
+---
+# Prometheus needs to read the node list from the API server to discover the
+# worker agents. Nodes only, read only - it has no reason to see anything else.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: cgpu-monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cgpu-prometheus
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "nodes/metrics", "services", "endpoints", "pods"]
+    verbs: ["get", "list", "watch"]
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cgpu-prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cgpu-prometheus
+subjects:
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: cgpu-monitoring
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: cgpu-monitoring
+data:
+  prometheus.yml: |
+    global:
+      # 15s matches the worker agent's own refresh interval (10s) closely enough
+      # to catch a job's VRAM curve without hammering nvidia-smi on a laptop.
+      scrape_interval: 15s
+      evaluation_interval: 30s
+      external_labels:
+        cluster: cgpu
+
+    # Without this the rules below are mounted but never loaded, and the alerts
+    # silently do not exist - which looks identical to "nothing is wrong".
+    rule_files:
+      - /etc/prometheus/cgpu-rules.yml
+
+    scrape_configs:
+      # ---- GPU worker agents -------------------------------------------------
+      # Discovered from the API server, so a laptop that rejoins on a new IP is
+      # picked up automatically. The agent serves /metrics on 9400.
+      - job_name: cgpu-worker-agent
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          # Only nodes labelled as GPU workers run the agent; scraping the
+          # control plane for it would just produce permanent "down" series.
+          - source_labels: [__meta_kubernetes_node_label_cgpu_dev_gpu]
+            regex: "true"
+            action: keep
+          - source_labels: [__address__]
+            regex: "([^:]+)(:\\d+)?"
+            replacement: "${1}:9400"
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_node_name]
+            target_label: node
+        metrics_path: /metrics
+        # A sleeping laptop should fail fast and show as down, not stall the
+        # whole scrape cycle.
+        scrape_timeout: 5s
+
+      # ---- scheduler / placement engine -------------------------------------
+      # Runs on the control plane host, outside Kubernetes, so this one is
+      # static by necessity: PC1's address is fixed infrastructure, unlike the
+      # laptops. Override with CGPU_SCHEDULER_TARGET if the control plane moves.
+      - job_name: cgpu-scheduler
+        static_configs:
+          - targets: ["10.20.24.31:8082"]
+            labels:
+              component: scheduler
+        metrics_path: /metrics
+        scrape_timeout: 5s
+
+      # ---- Prometheus itself -------------------------------------------------
+      - job_name: prometheus
+        static_configs:
+          - targets: ["localhost:9090"]
+
+  # Alerts are deliberately few and all actionable. An alert nobody acts on
+  # trains people to ignore the ones that matter.
+  cgpu-rules.yml: |
+    groups:
+      - name: cgpu
+        rules:
+          - alert: CGPUWorkerAgentDown
+            expr: up{job="cgpu-worker-agent"} == 0
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: "GPU worker agent unreachable on {{ $labels.node }}"
+              description: >-
+                No telemetry from this worker for 2 minutes. The laptop may be
+                asleep or on a new address, or inbound TCP 9400 may be blocked
+                by the Hyper-V firewall on a WSL worker.
+
+          - alert: CGPUGpuUnhealthy
+            expr: cgpu_gpu_healthy == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "GPU reporting unhealthy on {{ $labels.node }}"
+
+          - alert: CGPUQuotaDenialsRising
+            expr: increase(cgpu_job_vram_denials_total[10m]) > 0
+            labels:
+              severity: info
+            annotations:
+              summary: "Job {{ $labels.job_id }} is being refused VRAM"
+              description: >-
+                The allocation guard denied at least one request in the last 10
+                minutes. Expected during the quota demo; otherwise it means a
+                job is sized above its reservation.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: cgpu-monitoring
+  labels:
+    app.kubernetes.io/name: prometheus
+    app.kubernetes.io/part-of: cgpu
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: prometheus
+        app.kubernetes.io/part-of: cgpu
+    spec:
+      serviceAccountName: prometheus
+      # Keep monitoring off the GPU workers: they are laptops that come and go,
+      # and losing the metrics store with them defeats the purpose.
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: "true"
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+      containers:
+        - name: prometheus
+          image: docker.io/prom/prometheus:v3.1.0
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            # 7 days is enough to review a demo afterwards and keeps the TSDB
+            # small on a 16 GB control-plane box.
+            - --storage.tsdb.retention.time=7d
+            - --web.enable-lifecycle
+          ports:
+            - name: http
+              containerPort: 9090
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+              readOnly: true
+            - name: data
+              mountPath: /prometheus
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+            initialDelaySeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            initialDelaySeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-config
+        # emptyDir, not a PVC: this cluster has no storage class, and 7 days of
+        # demo metrics is not data worth engineering durability for. Metrics are
+        # lost if the pod moves - say so rather than implying persistence.
+        - name: data
+          emptyDir:
+            sizeLimit: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: cgpu-monitoring
+  labels:
+    app.kubernetes.io/name: prometheus
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: prometheus
+  ports:
+    - name: http
+      port: 9090
+      targetPort: http
+      nodePort: 30090
