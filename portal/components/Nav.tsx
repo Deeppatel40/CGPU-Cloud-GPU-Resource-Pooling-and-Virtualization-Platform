@@ -8,6 +8,7 @@ const LINKS = [
   { href: '/submit', label: 'Submit job' },
   { href: '/jobs', label: 'Jobs' },
   { href: '/gpus', label: 'GPU inventory' },
+  { href: '/telemetry', label: 'Live telemetry' },
 ];
 
 export default function Nav() {

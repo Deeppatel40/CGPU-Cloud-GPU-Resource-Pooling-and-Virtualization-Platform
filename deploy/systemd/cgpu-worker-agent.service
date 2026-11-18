@@ -1,0 +1,41 @@
+[Unit]
+# CGPU per-worker GPU discovery and telemetry daemon.
+#
+# Owner / engineer: Deep Patel (@Deeppatel40)
+#
+# This is what makes a GPU worker's metrics reach Prometheus at all: it exports
+# nvidia-smi readings plus the allocation guard's per-job VRAM accounting on
+# :9400/metrics. Without it running, every measured figure on the portal and
+# every GPU panel in Grafana is empty - so it belongs in systemd rather than
+# being started by hand in a terminal that closes.
+#
+# On a WSL worker, inbound 9400 is blocked by the Hyper-V firewall's default
+# (Block). If Prometheus runs on another host, add an allow rule once, from an
+# elevated PowerShell:
+#   New-NetFirewallHyperVRule -Name "CGPU-Worker-Agent-In" `
+#     -DisplayName "CGPU Worker Agent (TCP 9400 In)" `
+#     -VMCreatorId "{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}" `
+#     -Direction Inbound -Action Allow -Protocol TCP -LocalPorts 9400
+Description=CGPU worker agent (GPU inventory, health and per-job VRAM telemetry)
+Documentation=file:///opt/cgpu/README
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Reads nvidia-smi and the guard status files under /var/run/cgpu/guard.
+ExecStart=/usr/local/bin/cgpu-worker-agent \
+    -listen 0.0.0.0:9400 \
+    -guard-status-dir /var/run/cgpu/guard \
+    -reserve-mib 512
+# The guard writes a status file per job; create the directory before the first
+# job does, so the agent never starts against a missing path.
+ExecStartPre=/bin/mkdir -p /var/run/cgpu/guard
+Restart=always
+RestartSec=5
+# nvidia-smi can block briefly while the driver wakes; do not treat that as a
+# failed start.
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target

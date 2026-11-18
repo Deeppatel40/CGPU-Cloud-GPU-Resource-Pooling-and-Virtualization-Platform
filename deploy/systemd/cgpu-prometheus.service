@@ -1,0 +1,46 @@
+[Unit]
+# Prometheus for a single CGPU worker, run through containerd.
+#
+# Owner / engineer: Deep Patel (@Deeppatel40)
+#
+# Why a node-local Prometheus exists at all, when deploy/monitoring/prometheus.yaml
+# deploys a cluster-wide one: a k3s *agent* holds no kubeconfig, so it cannot run
+# the Kubernetes-discovered version, and more usefully this one scrapes the worker
+# agent over loopback. That sidesteps the stale-node-IP problem in the scheduler
+# entirely, so a worker keeps producing real telemetry even when the control
+# plane's recorded address for it is wrong.
+#
+# Config and TSDB live under /var/lib/cgpu/monitoring, i.e. inside the WSL root,
+# which on this laptop is on D: - C: has no space.
+#
+# Install:
+#   sudo install -m 644 deploy/systemd/cgpu-prometheus.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now cgpu-prometheus
+Description=CGPU Prometheus (node-local metrics store)
+After=network-online.target k3s-agent.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=IMAGE=docker.io/prom/prometheus:v3.1.0
+Environment=BASE=/var/lib/cgpu/monitoring
+# --rm cleans up on exit, but a hard kill can leave the container registered and
+# then the next start fails on a duplicate id. Remove any corpse first; ignore
+# the error when there is none.
+ExecStartPre=-/usr/local/bin/k3s ctr container rm cgpu-prometheus
+ExecStartPre=/bin/mkdir -p /var/lib/cgpu/monitoring/prom-data
+ExecStart=/usr/local/bin/k3s ctr run --rm --net-host \
+    --mount type=bind,src=/var/lib/cgpu/monitoring/prometheus,dst=/etc/prometheus,options=rbind:ro \
+    --mount type=bind,src=/var/lib/cgpu/monitoring/prom-data,dst=/prometheus,options=rbind:rw \
+    docker.io/prom/prometheus:v3.1.0 cgpu-prometheus \
+    /bin/prometheus --config.file=/etc/prometheus/prometheus.yml \
+      --storage.tsdb.path=/prometheus \
+      --storage.tsdb.retention.time=7d \
+      --web.listen-address=0.0.0.0:9090
+ExecStop=-/usr/local/bin/k3s ctr task kill --signal SIGTERM cgpu-prometheus
+Restart=always
+RestartSec=10
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,43 @@
+[Unit]
+# Grafana for a single CGPU worker, run through containerd.
+#
+# Owner / engineer: Deep Patel (@Deeppatel40)
+#
+# Pairs with cgpu-prometheus.service. Datasource and the CGPU dashboard are
+# provisioned from files under /var/lib/cgpu/monitoring/grafana, which are
+# generated from deploy/monitoring/grafana.yaml so the node-local Grafana shows
+# the same panels as the cluster one.
+#
+# Admin credentials stay at the default admin/admin: this is a lab machine on a
+# private LAN, and a password committed to a public repo would be worse than an
+# obvious default. Set GF_SECURITY_ADMIN_PASSWORD here if this is ever exposed.
+#
+# Install:
+#   sudo install -m 644 deploy/systemd/cgpu-grafana.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now cgpu-grafana
+Description=CGPU Grafana (node-local dashboards)
+After=network-online.target cgpu-prometheus.service
+Wants=network-online.target cgpu-prometheus.service
+
+[Service]
+Type=simple
+ExecStartPre=-/usr/local/bin/k3s ctr container rm cgpu-grafana
+ExecStartPre=/bin/mkdir -p /var/lib/cgpu/monitoring/grafana-data
+# Grafana runs as uid 472 inside the image and needs to own its data dir.
+ExecStartPre=/bin/chown -R 472:472 /var/lib/cgpu/monitoring/grafana-data
+ExecStart=/usr/local/bin/k3s ctr run --rm --net-host \
+    --env GF_SECURITY_ADMIN_USER=admin \
+    --env GF_SECURITY_ADMIN_PASSWORD=admin \
+    --env GF_USERS_ALLOW_SIGN_UP=false \
+    --env GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/cgpu-overview.json \
+    --mount type=bind,src=/var/lib/cgpu/monitoring/grafana-data,dst=/var/lib/grafana,options=rbind:rw \
+    --mount type=bind,src=/var/lib/cgpu/monitoring/grafana/dashboards,dst=/var/lib/grafana/dashboards,options=rbind:ro \
+    --mount type=bind,src=/var/lib/cgpu/monitoring/grafana/provisioning,dst=/etc/grafana/provisioning,options=rbind:ro \
+    docker.io/grafana/grafana:11.5.1 cgpu-grafana
+ExecStop=-/usr/local/bin/k3s ctr task kill --signal SIGTERM cgpu-grafana
+Restart=always
+RestartSec=10
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target
