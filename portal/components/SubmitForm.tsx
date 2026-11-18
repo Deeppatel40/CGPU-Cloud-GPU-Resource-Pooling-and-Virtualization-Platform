@@ -185,6 +185,25 @@ export default function SubmitForm({ skipClientValidation = false }: { skipClien
         </div>
       )}
 
+      {workload?.pending_api_deploy && (
+        <div className="alert warn" role="status">
+          <div className="alert-title">
+            {workload.name} is not deployed on this API yet
+            <span className="chip">cannot submit</span>
+          </div>
+          <p>
+            This workload exists in the repository but the running API does not list it, so a
+            submission would be rejected as an unknown workload. The parameters below are shown
+            so the workload can be reviewed.
+          </p>
+          <p className="muted small">
+            To enable it: redeploy <code>cgpu-api</code> from a checkout that includes{' '}
+            <code>{workload.workload_id}</code> in <code>pkg/jobs/catalog.go</code>, and import its
+            image on each GPU node.
+          </p>
+        </div>
+      )}
+
       {outcome?.kind === 'validation' && (
         <div className="alert err" role="alert">
           <div className="alert-title">
@@ -232,6 +251,7 @@ export default function SubmitForm({ skipClientValidation = false }: { skipClien
               {catalog.items.map((w) => (
                 <option key={w.workload_id} value={w.workload_id}>
                   {w.name} ({w.workload_id})
+                  {w.pending_api_deploy ? ' — not yet deployed' : ''}
                 </option>
               ))}
             </select>
@@ -369,7 +389,10 @@ export default function SubmitForm({ skipClientValidation = false }: { skipClien
       </fieldset>
 
       <div className="form-actions">
-        <button type="submit" className="btn primary" disabled={submitting}>
+        {/* Blocked rather than left to fail: the running API has no entry for this
+            workload, so a submission would be rejected as an unknown workload. Saying
+            so here is more useful than relaying that error after the fact. */}
+        <button type="submit" className="btn primary" disabled={submitting || !!workload?.pending_api_deploy}>
           {submitting ? 'Submitting…' : outcome?.kind === 'error' && outcome.retryable ? 'Retry submission' : 'Submit job'}
         </button>
         <Link href="/jobs" className="btn">

@@ -99,11 +99,33 @@ export interface WorkloadCatalog {
   warning?: string;
 }
 
+/**
+ * Appends built-in workloads the running API does not list.
+ *
+ * The API's catalog is authoritative for what can actually be submitted - it is
+ * the approved-workload list, and it maps an id to an image and command. But a
+ * workload added to this repo only appears there once the API is redeployed,
+ * which on this cluster is a separate machine. Hiding it until then makes a new
+ * workload look missing rather than undeployed, which is the confusing failure.
+ *
+ * So extras are shown and flagged instead, and the submit form refuses to send
+ * them - a visible entry that silently fails on submit would be worse than not
+ * showing it at all.
+ */
+function withPendingExtras(apiItems: WorkloadDefinition[]): WorkloadDefinition[] {
+  const known = new Set(apiItems.map((w) => w.workload_id));
+  const extras = BUILTIN_WORKLOADS.filter((w) => !known.has(w.workload_id)).map((w) => ({
+    ...w,
+    pending_api_deploy: true,
+  }));
+  return [...apiItems, ...extras];
+}
+
 export async function listWorkloads(): Promise<WorkloadCatalog> {
   try {
     const { data } = await request<WorkloadListResponse>('/workloads');
     if (Array.isArray(data?.items) && data.items.length > 0) {
-      return { items: data.items, source: 'api' };
+      return { items: withPendingExtras(data.items), source: 'api' };
     }
     return { items: BUILTIN_WORKLOADS, source: 'builtin', warning: 'The API returned an empty workload catalog.' };
   } catch (e) {

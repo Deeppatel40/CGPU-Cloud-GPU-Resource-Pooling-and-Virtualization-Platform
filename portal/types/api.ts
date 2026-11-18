@@ -255,6 +255,14 @@ export interface WorkloadDefinition {
   min_vram_mib: number;
   max_vram_mib: number;
   parameters: WorkloadParameter[];
+  /**
+   * Set by the portal, never by the API: true when this entry comes from the
+   * built-in catalog and the running API does not list it, so the workload
+   * exists in this checkout but the deployed API would reject a submission of
+   * it as unknown. Such entries are shown (so a newly added workload is
+   * discoverable) but cannot be submitted until the API is redeployed.
+   */
+  pending_api_deploy?: boolean;
 }
 
 /** GET /api/v1/workloads */
