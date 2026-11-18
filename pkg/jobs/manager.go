@@ -332,6 +332,25 @@ func (m *Manager) step(ctx context.Context, j *Job) bool {
 	case pod == nil:
 		j.PendingReason = v1.ReasonContainerCreating
 	case pod.Terminated != nil || pod.Phase == "Succeeded" || pod.Phase == "Failed":
+		// The pod phase can lag its container's termination by a poll or two: the container
+		// is Terminated with exit 0 while the phase is still Running. finish() requires
+		// phase Succeeded to call a run successful, so concluding here would record a clean
+		// run as CONTAINER_NON_ZERO_EXIT with exit_code 0 - and the verdict is final,
+		// because finish() deletes the Kubernetes objects immediately afterwards.
+		//
+		// Observed on the cluster: of four identical successful matmul jobs, three were
+		// marked FAILED and one SUCCEEDED, purely on whether the 3s poll landed before or
+		// after the phase flipped.
+		//
+		// So when the container exited cleanly and nothing else has failed, wait for the
+		// phase to settle. The wait is bounded: if the phase is still not terminal 60s
+		// after the container finished, conclude anyway rather than leaving the job RUNNING
+		// forever and holding its VRAM reservation.
+		if pod.Terminated != nil && pod.Terminated.ExitCode == 0 && !st.JobFailed &&
+			pod.Phase != "Succeeded" && pod.Phase != "Failed" &&
+			(pod.Terminated.FinishedAt.IsZero() || now.Sub(pod.Terminated.FinishedAt.UTC()) < 60*time.Second) {
+			return fingerprint(j) != before
+		}
 		m.finish(ctx, j, pod, st, "")
 		return true
 	case st.JobFailed:

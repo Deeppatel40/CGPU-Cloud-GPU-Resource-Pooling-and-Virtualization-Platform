@@ -36,12 +36,16 @@ ENV NVIDIA_VISIBLE_DEVICES=all \
 # Observed exactly that on the first cluster run: the workload finished with RESULT=OK and
 # then logged "/bin/sh: 1: python: not found".
 #
-# python3-minimal plus a `python` link is the smallest thing that satisfies the contract
-# (~12 MB). The alternative - changing the template to call python3 - would have to be
-# right for every workload image, including the conda-based ResNet one, so fixing this
-# image is the narrower change.
+# The alternative - changing the template to call python3 - would have to be right for
+# every workload image, including the conda-based ResNet one, so fixing this image is the
+# narrower change.
+#
+# python3 rather than python3-minimal: minimal omits the standard library, and the uploader
+# imports urllib.request, which failed with "No module named 'http'". That cost a second
+# round trip, so it is worth stating plainly - "minimal" here means no stdlib, not a
+# slimmer stdlib.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3-minimal \
+    && apt-get install -y --no-install-recommends python3 \
     && ln -sf /usr/bin/python3 /usr/bin/python \
     && rm -rf /var/lib/apt/lists/*
 
