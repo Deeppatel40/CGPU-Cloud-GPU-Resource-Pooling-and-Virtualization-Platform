@@ -285,17 +285,39 @@ The platform can monitor:
 * Resource allocation
 * Node status
 
-Optional monitoring stack:
+Monitoring stack:
 
 ```text
-GPU Nodes
-    │
-    ▼
-Prometheus
-    │
-    ▼
-Grafana
+cgpu-worker-agent (:9400/metrics)      cgpu-scheduler (:8082/metrics)
+   nvidia-smi + guard per-job VRAM            pool totals
+            │                                      │
+            └──────────────┬───────────────────────┘
+                           ▼
+                      Prometheus  ──────────────┐
+                           │                    │
+                           ▼                    ▼
+                       Grafana              CGPU portal
+                  (CGPU dashboard)      (Live telemetry page)
 ```
+
+Deploy it with [`deploy/monitoring/`](deploy/monitoring/):
+
+```bash
+kubectl apply -f deploy/monitoring/prometheus.yaml   # NodePort 30090
+kubectl apply -f deploy/monitoring/grafana.yaml      # NodePort 30300, admin/admin
+```
+
+Prometheus discovers the GPU workers through the Kubernetes API (`role: node`)
+rather than a static target list, so a worker that rejoins on a new address
+keeps being scraped. Grafana comes up with the datasource and the CGPU dashboard
+already provisioned.
+
+The portal's **Live telemetry** page reads the same data, which is why it shows
+measured figures even when the job API's own `telemetry` field reports
+`AGENT_UNREACHABLE` — see [`docs/a3-guard-evidence.md`](docs/a3-guard-evidence.md).
+A GPU node must be running `cgpu-worker-agent` for any of it to have data;
+[`deploy/systemd/`](deploy/systemd/) has units for the agent and, for a worker
+with no kubeconfig, a node-local Prometheus and Grafana.
 
 ---
 
