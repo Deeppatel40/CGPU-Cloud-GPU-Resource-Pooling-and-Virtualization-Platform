@@ -1,0 +1,179 @@
+# CGPU workload image loader
+# =============================================================================
+# Imports CGPU workload images into containerd on every GPU node, without
+# needing shell access to the node.
+#
+# Owner / engineer: Deep Patel (@Deeppatel40)
+#
+# Why this exists:
+#   Docker and K3s keep separate image stores, so `docker build` on one machine
+#   does not make an image available to the cluster - each node needs its own
+#   `ctr images import`. That is fine when you can log into the node. The GPU
+#   workers are laptops: they join over outbound connections and are often
+#   unreachable inbound (asleep, roaming, or behind the Hyper-V firewall that
+#   fronts a WSL worker), so there is no reliable moment to SSH in.
+#
+#   A node that cannot be reached can still run pods - the kubelet pulls work
+#   outbound. So image distribution goes the same way: this DaemonSet lands on
+#   the node whenever it next checks in and imports from a URL the node can
+#   reach, which needs no inbound access and no registry.
+#
+#   The alternative, a private registry, needs /etc/rancher/k3s/registries.yaml
+#   written on every node - which is the node access we do not have.
+#
+# It is deliberately conservative: it removes the existing tag before importing,
+# because K3s only pulls when a tag is missing and will otherwise keep serving
+# an older build of the same tag - the failure mode that had a stale, broken
+# gpu-matmul image running on one worker while every other node was fine.
+#
+# Serve the tarball first, from the machine holding it (PC2):
+#   cd /home/g6/cgpu-app && nohup python3 -m http.server 8090 --bind 0.0.0.0 &
+#
+# Then:
+#   kubectl apply -f deploy/cgpu-image-loader.yaml
+#   kubectl -n cgpu-system logs -l app.kubernetes.io/name=cgpu-image-loader
+#
+# Delete it once every node reports done - it is a one-shot task shaped as a
+# DaemonSet so that nodes which are offline today still get the image when they
+# come back.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cgpu-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cgpu-image-loader
+  namespace: cgpu-system
+data:
+  # Images to load: one "<tarball-url> <image-ref>" per line.
+  images: |
+    http://10.20.24.32:8090/gpu-matmul.tar docker.io/cgpu/workloads/gpu-matmul:1.0.0
+  load.sh: |
+    #!/bin/sh
+    # Runs on the node, talking to the node's own containerd through its socket.
+    set -u
+    CTR="/host/usr-local-bin/k3s ctr -n k8s.io"
+    STAMP_DIR=/host/var-lib-cgpu/image-loader
+    mkdir -p "$STAMP_DIR" 2>/dev/null
+
+    while read -r url ref; do
+        [ -z "${url:-}" ] && continue
+        case "$url" in \#*) continue ;; esac
+
+        echo "[loader] $ref"
+        tmp=/tmp/$(echo "$ref" | tr '/:' '__').tar
+        if ! wget -q -O "$tmp" "$url"; then
+            echo "[loader] FAILED to fetch $url - is the file server running on PC2?"
+            continue
+        fi
+        sum=$(md5sum "$tmp" | cut -d' ' -f1)
+        stamp="$STAMP_DIR/$(echo "$ref" | tr '/:' '__').md5"
+
+        # Skip when this exact tarball was already imported here: the DaemonSet
+        # restarts on reboot and re-importing a multi-hundred-MB image on every
+        # restart would be wasteful.
+        if [ -f "$stamp" ] && [ "$(cat "$stamp")" = "$sum" ]; then
+            echo "[loader] already imported ($sum), nothing to do"
+            rm -f "$tmp"
+            continue
+        fi
+
+        # Remove first: K3s only pulls a missing tag, so without this an older
+        # build of the same tag keeps being used.
+        $CTR images rm "$ref" >/dev/null 2>&1
+        if $CTR images import "$tmp"; then
+            echo "$sum" > "$stamp"
+            echo "[loader] imported $ref ($sum)"
+        else
+            echo "[loader] FAILED to import $ref"
+        fi
+        rm -f "$tmp"
+    done < /etc/cgpu/images
+
+    echo "[loader] done on $NODE_NAME"
+    # Hold the pod Ready so the DaemonSet reports completion state rather than
+    # churning through CrashLoopBackOff.
+    sleep infinity
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: cgpu-image-loader
+  namespace: cgpu-system
+  labels:
+    app.kubernetes.io/name: cgpu-image-loader
+    app.kubernetes.io/part-of: cgpu
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cgpu-image-loader
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cgpu-image-loader
+        app.kubernetes.io/part-of: cgpu
+    spec:
+      nodeSelector:
+        cgpu.dev/gpu: "true"
+      # Tolerate a node that is cordoned or tainted: a worker being repaired is
+      # exactly when the image needs to arrive.
+      tolerations:
+        - operator: Exists
+      automountServiceAccountToken: false
+      hostNetwork: true          # the overlay is unusable on a WSL worker
+      dnsPolicy: Default
+      containers:
+        - name: loader
+          # busybox for wget + sh. The k3s binary comes from the host, so the
+          # image needs nothing CUDA- or containerd-specific.
+          image: docker.io/library/busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "/etc/cgpu/load.sh"]
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          securityContext:
+            # Writing to the node's containerd needs root on the host side.
+            runAsUser: 0
+          volumeMounts:
+            - name: cfg
+              mountPath: /etc/cgpu
+              readOnly: true
+            - name: containerd-sock
+              mountPath: /run/k3s/containerd
+            - name: k3s-bin
+              mountPath: /host/usr-local-bin
+              readOnly: true
+            - name: cgpu-state
+              mountPath: /host/var-lib-cgpu
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+      volumes:
+        - name: cfg
+          configMap:
+            name: cgpu-image-loader
+            defaultMode: 0755
+        # The node's containerd socket: this is what makes `ctr` talk to the
+        # node's own image store rather than anything inside the pod.
+        - name: containerd-sock
+          hostPath:
+            path: /run/k3s/containerd
+            type: Directory
+        - name: k3s-bin
+          hostPath:
+            path: /usr/local/bin
+            type: Directory
+        - name: cgpu-state
+          hostPath:
+            path: /var/lib/cgpu
+            type: DirectoryOrCreate
