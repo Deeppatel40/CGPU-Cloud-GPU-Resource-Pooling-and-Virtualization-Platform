@@ -1,0 +1,99 @@
+# CGPU device plugin, as a DaemonSet
+# =============================================================================
+# Advertises each GPU node's memory as cgpu.dev/vram-512mib units, so plain
+# Kubernetes can schedule fractions of a card. See cmd/cgpu-device-plugin for
+# why the units-as-integers approach replaces the usual webhook + extender.
+#
+# Owner / engineer: Deep Patel (@Deeppatel40)
+#
+# Requires, on each GPU node:
+#   - the image imported (deploy/cgpu-image-loader.yaml)
+#   - the guard installed at /opt/cgpu (deploy/cgpu-guard-installer.yaml)
+#   - the node labelled cgpu.dev/gpu=true
+#
+# Apply:
+#   kubectl apply -f deploy/cgpu-device-plugin-daemonset.yaml
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: cgpu-device-plugin
+  namespace: cgpu-system
+  labels:
+    app.kubernetes.io/name: cgpu-device-plugin
+    app.kubernetes.io/part-of: cgpu
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cgpu-device-plugin
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cgpu-device-plugin
+        app.kubernetes.io/part-of: cgpu
+    spec:
+      nodeSelector:
+        cgpu.dev/gpu: "true"
+      tolerations:
+        - operator: Exists
+      automountServiceAccountToken: false
+      # Needs nvidia-smi for discovery; the nvidia runtime injects it.
+      runtimeClassName: nvidia
+      # The plugin must outlive a kubelet restart and re-register, so it should
+      # not be evicted lightly.
+      priorityClassName: system-node-critical
+      containers:
+        - name: plugin
+          image: docker.io/cgpu/cgpu-device-plugin:1.0.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - -unit-mib
+            - "512"
+            - -reserve-mib
+            - "512"
+            # Default each pod's compute share to its share of the card's
+            # memory. -sm-share=false would leave compute unmetered.
+            - -sm-share
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: all
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: utility
+          securityContext:
+            # Writing into the kubelet's device-plugin directory needs root.
+            runAsUser: 0
+          volumeMounts:
+            # The kubelet's plugin registry: the plugin creates its socket here
+            # and calls kubelet.sock to register.
+            - name: device-plugin
+              mountPath: /var/lib/kubelet/device-plugins
+            # Reads the guard it injects, and writes the node spec file.
+            - name: cgpu-opt
+              mountPath: /opt/cgpu
+              readOnly: true
+            - name: cgpu-state
+              mountPath: /var/lib/cgpu
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      volumes:
+        - name: device-plugin
+          hostPath:
+            path: /var/lib/kubelet/device-plugins
+            type: Directory
+        - name: cgpu-opt
+          hostPath:
+            path: /opt/cgpu
+            type: DirectoryOrCreate
+        - name: cgpu-state
+          hostPath:
+            path: /var/lib/cgpu
+            type: DirectoryOrCreate
