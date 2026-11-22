@@ -1,0 +1,52 @@
+# Fractional GPU with plain kubectl
+# =============================================================================
+# The point of this example: there is nothing CGPU-specific in it. No scheduler
+# name, no annotations, no LD_PRELOAD, no quota variables, no webhook. It asks
+# for four units of VRAM the way a pod asks for CPU or memory, and the platform
+# does the rest:
+#
+#   kube-scheduler  picks a node that has four free units
+#   device plugin   grants four unit IDs, so it knows the pod's allowance
+#                   exactly, and injects the guard plus its limits
+#   guard           enforces 2048 MiB and a proportional compute share inside
+#                   the container
+#
+# 4 units x 512 MiB = 2048 MiB. The compute share defaults to the pod's share of
+# the card's memory (2048/6141 = 33%), so a pod asking for a third of the memory
+# gets about a third of the SMs.
+#
+# Expected in the log: the guard reporting its quota, cuMemGetInfo showing
+# 2048 MiB rather than the card's 6141, and the workload verifying its own
+# arithmetic.
+#
+#   kubectl apply -f deploy/examples/plain-kubectl-fraction.yaml
+#   kubectl logs -f cgpu-fraction-demo
+apiVersion: v1
+kind: Pod
+metadata:
+  name: cgpu-fraction-demo
+spec:
+  restartPolicy: Never
+  # The nvidia runtime injects the driver and nvidia-smi; the guard needs the
+  # real libcuda to interpose against.
+  runtimeClassName: nvidia
+  # The pod overlay is unusable on a WSL worker, and this workload needs no pod
+  # networking - see docs/gpu-worker-4050.md for the diagnosis.
+  hostNetwork: true
+  dnsPolicy: Default
+  containers:
+    - name: matmul
+      image: docker.io/cgpu/workloads/gpu-matmul:1.0.0
+      imagePullPolicy: IfNotPresent
+      command:
+        - /usr/local/bin/cgpu_matmul
+        - --label
+        - plain-kubectl
+        - --size
+        - "2048"
+        - --seconds
+        - "30"
+      resources:
+        limits:
+          # Four 512 MiB units. This is the entire GPU request.
+          cgpu.dev/vram-512mib: 4
