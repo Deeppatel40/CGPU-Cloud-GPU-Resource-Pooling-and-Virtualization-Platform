@@ -6,13 +6,37 @@ the measured GPU evidence, see [docs/a3-guard-evidence.md](docs/a3-guard-evidenc
 
 ---
 
+## The cluster
+
+| Machine | Address | Role |
+| --- | --- | --- |
+| `cgpu-control-plane` (PC1) | `10.20.24.31` | K3s server, **scheduler / placement engine** (:8082), cluster Prometheus + Grafana |
+| `cgpu-cpu-worker` (PC2) | `10.20.24.32` | **the server**: REST API (:8080), MongoDB, the team's portal (:3000) |
+| `cgpu-gpu-worker-4050` | DHCP, Wi-Fi | GPU worker — RTX 4050, 6141 MiB |
+| `cgpu-gpu-worker-3050` | DHCP, Wi-Fi | GPU worker — RTX 3050, 4096 MiB |
+
+The two PCs sit on the wired `10.20.24.0/24` network and the GPU laptops join
+over Wi-Fi on `10.1.144.0/22`. Workers only need **outbound** access to PC1:6443
+to join, which is why a laptop on the campus Wi-Fi works as a node at all.
+
+### Anyone on the university network
+
+No VPN, no cluster access, nothing installed — just a browser:
+
+| What | Where |
+| --- | --- |
+| **Submit jobs, watch logs, see the GPU pool** | <http://10.20.24.32:3000> |
+| REST API | <http://10.20.24.32:8080> |
+| Grafana dashboards | <http://10.20.24.31:30300> (`admin` / `admin`) |
+| Prometheus | <http://10.20.24.31:30090> |
+
 ## The short version
 
 | You are on | Run this | You get |
 | --- | --- | --- |
-| **RTX 4050 laptop** (GPU worker) | `.\start-cgpu.ps1` | cluster join, guard, telemetry, Grafana, local portal |
+| **A GPU laptop** (worker) | `.\start-cgpu.ps1` | cluster join, guard, telemetry, local Grafana + portal |
 | **PC1** (control plane) | `systemctl start k3s cgpu-scheduler` | K3s server + placement engine |
-| **PC2** (API + portal) | `systemctl start mongod cgpu-api cgpu-portal` | REST API + the team's portal |
+| **PC2** (the server) | `systemctl start mongod cgpu-api cgpu-portal` | REST API + the team's portal |
 
 Start PC1 first, then PC2, then the GPU workers — each layer depends on the one
 before it. A worker started early is not a problem, it simply retries.
@@ -330,21 +354,27 @@ systemctl start cgpu-scheduler      # placement engine, :8082
 kubectl get nodes -o wide           # every worker should be Ready
 ```
 
-### Give the scheduler the workers' real addresses
+### Worker addresses — handled automatically
 
-The built-in node list hardcodes each worker's IP. The GPU workers are laptops
-on Wi-Fi, so their address changes on every rejoin, and a stale address makes
-the portal show the wrong IP and telemetry fail permanently — the API probes
-port 9400 at the recorded address. Refresh it from what Kubernetes reports:
+Nothing to do here any more. The scheduler's reconciler adopts each node's
+`InternalIP` from Kubernetes every 30 s, so a laptop that rejoins on a new DHCP
+lease is picked up on its own:
 
-```bash
-scripts/gen-nodes-file.sh > /etc/cgpu/nodes.json
-CGPU_NODES_FILE=/etc/cgpu/nodes.json   # then restart cgpu-scheduler
+```text
+[CGPU-Reconciler] node cgpu-gpu-worker-4050 address 10.20.24.35 -> 10.1.144.131
 ```
 
-Re-run it after any laptop rejoins on a new address.
+This used to be the single most confusing failure on the platform: the node
+list was seeded with fixed addresses, the GPU workers are laptops on Wi-Fi, and
+a stale address made the API probe port 9400 at the wrong host — so the portal
+showed `AGENT_UNREACHABLE` and every measured figure read "unavailable" on
+workers that were healthy and reporting the whole time.
 
-### Cluster-wide monitoring (optional)
+[`scripts/gen-nodes-file.sh`](scripts/gen-nodes-file.sh) still exists and writes
+the same information into `CGPU_NODES_FILE`, as a fallback if you ever need to
+pin the inventory by hand.
+
+### Cluster-wide monitoring
 
 ```bash
 kubectl apply -f deploy/monitoring/prometheus.yaml   # NodePort 30090
