@@ -54,6 +54,16 @@ type nodeList struct {
 				Type   string `json:"type"`
 				Status string `json:"status"`
 			} `json:"conditions"`
+			// Addresses carries the node's current InternalIP. The GPU workers are
+			// laptops on DHCP Wi-Fi, so the address the scheduler was started with
+			// goes stale on every rejoin - and a stale address is not cosmetic: the
+			// API probes <ip>:9400 for telemetry, so the portal reports
+			// AGENT_UNREACHABLE and every measured figure renders "unavailable"
+			// while the worker is in fact healthy and reporting.
+			Addresses []struct {
+				Type    string `json:"type"`
+				Address string `json:"address"`
+			} `json:"addresses"`
 		} `json:"status"`
 	} `json:"items"`
 }
@@ -87,16 +97,32 @@ func (r *reconciler) syncNodes(ctx context.Context) error {
 		return err
 	}
 	ready := make(map[string]bool, len(nl.Items))
+	addr := make(map[string]string, len(nl.Items))
 	for _, n := range nl.Items {
 		for _, c := range n.Status.Conditions {
 			if c.Type == "Ready" {
 				ready[n.Metadata.Name] = c.Status == "True"
 			}
 		}
+		for _, a := range n.Status.Addresses {
+			if a.Type == "InternalIP" && a.Address != "" {
+				addr[n.Metadata.Name] = a.Address
+			}
+		}
 	}
 	for _, node := range r.engine.GetNodes() {
 		if node.Status == v1.NodeMaintenance {
 			continue
+		}
+		// Adopt the address Kubernetes reports. Kubernetes learns it from the
+		// kubelet itself, so it is correct by construction where the value the
+		// scheduler was bootstrapped with is only correct until a laptop rejoins
+		// on a different one.
+		if ip := addr[node.KubernetesNode]; ip != "" && ip != node.IPAddress {
+			log.Printf("[CGPU-Reconciler] node %s address %s -> %s", node.NodeID, node.IPAddress, ip)
+			updated := node
+			updated.IPAddress = ip
+			r.engine.RegisterOrUpdateNode(&updated)
 		}
 		want := v1.NodeOffline
 		if ready[node.KubernetesNode] {
