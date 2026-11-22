@@ -72,6 +72,12 @@ gcc -std=c11 -O2 -g -Wall -Wextra -Wno-unused-parameter \
     -L"$CUDA_LIBDIR" -Wl,--no-as-needed -lcuda \
     -Wl,-rpath,/usr/lib/wsl/lib
 
+# Explicit, because the output often lands on a Windows drive where gcc's mode
+# does not stick: a non-executable binary in the build context produced an image
+# that failed at run time with "Permission denied". The Dockerfile chmods it too;
+# this keeps the local copy runnable as well.
+chmod 0755 "$OUT/cgpu_matmul"
+
 echo "built $OUT/cgpu_matmul"
 echo "dynamic CUDA symbols (what the guard interposes):"
 nm -D -u "$OUT/cgpu_matmul" | grep -oE "cu[A-Za-z_]+(_v2)?" | sort -u | sed 's/^/  /'

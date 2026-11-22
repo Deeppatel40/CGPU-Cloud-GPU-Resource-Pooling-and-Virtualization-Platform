@@ -49,7 +49,19 @@ RUN apt-get update \
     && ln -sf /usr/bin/python3 /usr/bin/python \
     && rm -rf /var/lib/apt/lists/*
 
+# COPY carries the source file's mode, and the build context lives on a Windows
+# drive where the executable bit does not survive reliably: a context file that
+# came out -rw-r--r-- produced an image whose entrypoint failed at run time with
+#
+#   /bin/sh: 1: /usr/local/bin/cgpu_matmul: Permission denied
+#
+# and, because the workload never ran, the follow-on symptom was the uploader
+# reporting "no output files in /outputs" - which points away from the cause.
+# Setting the mode here makes the image correct whatever the context file's mode
+# happens to be. chmod in a RUN rather than COPY --chmod so the build does not
+# require BuildKit.
 COPY build/cgpu_matmul /usr/local/bin/cgpu_matmul
+RUN chmod 0755 /usr/local/bin/cgpu_matmul
 
 # Mount points the platform's Job template provides: parameters in, results out.
 RUN mkdir -p /etc/cgpu /outputs
