@@ -44,6 +44,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 /* ---- CUDA constants, declared locally so no toolkit headers are needed ---------------- */
@@ -94,6 +95,10 @@ static const char *g_status_path;
  */
 static int g_virt_meminfo = 1;
 static int g_hook_dlsym;
+
+/* Compute share, declared here because cgpu_init() sets it; the limiter that uses it is
+ * further down. 0 means unlimited. */
+static int g_sm_percent;
 
 static int cgpu_env_flag(const char *name, int dflt)
 {
@@ -170,12 +175,28 @@ static void cgpu_init(void)
         g_quota_bytes = (size_t)cgpu_parse_u64(mib) * 1024u * 1024u;
     }
 
+    /* Compute share. Independent of the VRAM quota: a job may be given a slice of the SMs
+     * without a memory limit, or the reverse. */
+    const char *sm = getenv("CGPU_ALLOCATED_SM_PERCENT");
+    if (!sm || !*sm) sm = getenv("CGPU_ALLOCATED_GPU_CORES");
+    if (sm && *sm) {
+        long v = (long)cgpu_parse_u64(sm);
+        if (v > 0 && v < 100) {
+            g_sm_percent = (int)v;
+        } else if (v >= 100) {
+            g_sm_percent = 0; /* a full share is the same as no limit - skip the gate */
+        }
+    }
+
     g_enabled = (g_quota_bytes > 0);
     if (g_enabled) {
         cgpu_log("info", "guard active quota_bytes=%zu (%.1f MiB)",
                  g_quota_bytes, (double)g_quota_bytes / (1024.0 * 1024.0));
     } else {
         cgpu_log("info", "no quota configured (CGPU_ALLOCATED_VRAM_MIB unset) - pass-through");
+    }
+    if (g_sm_percent > 0) {
+        cgpu_log("info", "compute share %d%% of the GPU", g_sm_percent);
     }
 }
 
@@ -207,6 +228,242 @@ __attribute__((constructor)) static void cgpu_on_load(void)
 __attribute__((destructor)) static void cgpu_on_unload(void)
 {
     if (g_status_path) unlink(g_status_path);
+}
+
+/* =====================================================================================
+ * Compute (SM) limiting
+ * =====================================================================================
+ * A VRAM quota stops one job exhausting another's memory, but it says nothing about who
+ * gets the SMs: a single job issuing back-to-back kernels keeps the card at 100% and every
+ * co-tenant waits behind it. Time-slicing between processes is the driver's job and it is
+ * fair only in the sense that everyone suffers equally, so a job that should have a third
+ * of the card can still monopolise it.
+ *
+ * So the guard also meters kernel launches. The workload declares a share with
+ * CGPU_ALLOCATED_SM_PERCENT (1-100); a watcher thread samples how much of the GPU this
+ * process is actually getting and adjusts a pre-launch delay until the measured share
+ * converges on the declared one. Feedback rather than a fixed budget, because the cost of
+ * a kernel is not knowable in advance - grid size says nothing about how long a kernel
+ * runs, so any static "tokens per launch" scheme mis-meters by orders of magnitude between
+ * a trivial elementwise kernel and a large GEMM.
+ *
+ * Honest limits of this approach, all shared with every software-level GPU partitioner:
+ *   - It throttles *submission*, not execution. A single already-running kernel cannot be
+ *     preempted, so the share is only respected on average over several launches, and a
+ *     workload that submits one very long kernel will overshoot for its duration.
+ *   - Per-process accounting needs NVML. Where it is unavailable the watcher falls back to
+ *     device-wide utilisation, which over-counts when co-tenants are busy and therefore
+ *     throttles this job more than its share. Conservative in the right direction, but
+ *     worth knowing.
+ *   - It is a share of time, not a hardware partition. Hardware partitioning (MIG) gives
+ *     true isolation but only on datacenter cards; neither of this project's laptop GPUs
+ *     supports it.
+ */
+
+
+static pthread_once_t g_sm_once = PTHREAD_ONCE_INIT;
+static int g_sm_sampled_self;         /* 1 when per-process utilisation is available */
+
+/* ---- NVML, resolved at runtime so the guard never links against it ------------------- */
+typedef int (*fn_nvmlInit)(void);
+typedef int (*fn_nvmlDeviceGetHandleByIndex)(unsigned int, void **);
+typedef int (*fn_nvmlDeviceGetUtilizationRates)(void *, void *);
+typedef int (*fn_nvmlDeviceGetProcessUtilization)(void *, void *, unsigned int *, unsigned long long);
+
+struct cgpu_nvml_util { unsigned int gpu, memory; };
+/* nvmlProcessUtilizationSample_t */
+struct cgpu_nvml_proc { unsigned int pid; unsigned long long ts; unsigned int sm, mem, enc, dec; };
+
+static fn_nvmlDeviceGetUtilizationRates   g_nvml_util;
+static fn_nvmlDeviceGetProcessUtilization g_nvml_proc_util;
+static void *g_nvml_dev;
+
+static void cgpu_nvml_open(void)
+{
+    void *h = dlopen("libnvidia-ml.so.1", RTLD_LAZY);
+    if (!h) h = dlopen("libnvidia-ml.so", RTLD_LAZY);
+    if (!h) return;
+
+    fn_nvmlInit init = (fn_nvmlInit)dlsym(h, "nvmlInit_v2");
+    if (!init) init = (fn_nvmlInit)dlsym(h, "nvmlInit");
+    fn_nvmlDeviceGetHandleByIndex byidx =
+        (fn_nvmlDeviceGetHandleByIndex)dlsym(h, "nvmlDeviceGetHandleByIndex_v2");
+    if (!byidx) byidx = (fn_nvmlDeviceGetHandleByIndex)dlsym(h, "nvmlDeviceGetHandleByIndex");
+    if (!init || !byidx || init() != 0) return;
+    if (byidx(0, &g_nvml_dev) != 0) { g_nvml_dev = NULL; return; }
+
+    g_nvml_util = (fn_nvmlDeviceGetUtilizationRates)dlsym(h, "nvmlDeviceGetUtilizationRates");
+    g_nvml_proc_util =
+        (fn_nvmlDeviceGetProcessUtilization)dlsym(h, "nvmlDeviceGetProcessUtilization");
+}
+
+/* Returns this process's SM utilisation percentage, or -1 when unknown. */
+static int cgpu_sample_utilisation(void)
+{
+    if (!g_nvml_dev) return -1;
+
+    /* Preferred: our own share, so a co-tenant's load does not throttle us. */
+    if (g_nvml_proc_util) {
+        struct cgpu_nvml_proc samples[32];
+        unsigned int count = 32;
+        /* A 1s look-back: shorter windows frequently return "not found" between samples. */
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        unsigned long long since = (unsigned long long)(ts.tv_sec - 1) * 1000000ull;
+        if (g_nvml_proc_util(g_nvml_dev, samples, &count, since) == 0) {
+            const unsigned int me = (unsigned int)getpid();
+            for (unsigned int i = 0; i < count; i++) {
+                if (samples[i].pid == me) {
+                    g_sm_sampled_self = 1;
+                    return (int)samples[i].sm;
+                }
+            }
+            /* Reported successfully but we are not in the list: we used nothing. */
+            g_sm_sampled_self = 1;
+            return 0;
+        }
+    }
+
+    if (g_nvml_util) {
+        struct cgpu_nvml_util u = {0, 0};
+        if (g_nvml_util(g_nvml_dev, &u) == 0) return (int)u.gpu;
+    }
+    return -1;
+}
+
+/*
+ * Adjusts the pre-launch delay until measured utilisation meets the declared share.
+ *
+ * Deliberately asymmetric: overshoot is corrected faster than undershoot is relaxed. The
+ * cost of being slightly under budget is some idle GPU; the cost of being over is that a
+ * co-tenant misses its share, which is the thing the quota exists to prevent.
+ */
+static void *cgpu_sm_watcher(void *arg)
+{
+    (void)arg;
+    cgpu_nvml_open();
+
+    /*
+     * Reporting only. Enforcement is in cgpu_sm_gate(), which needs no measurement: the
+     * share is held by accounting the job's own work against wall time, so it works
+     * identically with or without NVML and is unaffected by what co-tenants do.
+     *
+     * This thread exists because the measured number is worth having when a share looks
+     * wrong - it distinguishes "the gate is not throttling" from "the gate is throttling
+     * and the GPU is busy with someone else". It only runs under CGPU_GUARD_VERBOSE.
+     */
+    if (!g_verbose) return NULL;
+
+    if (!g_nvml_dev) {
+        cgpu_log("info", "sm limit %d%% active (NVML unavailable - no utilisation reporting)",
+                 g_sm_percent);
+        return NULL;
+    }
+    cgpu_log("info", "sm limit %d%% active (%s utilisation reporting)", g_sm_percent,
+             g_nvml_proc_util ? "per-process" : "device-wide");
+
+    for (;;) {
+        struct timespec req = { 2, 0 }; /* every 2s: this is diagnostics, not a control loop */
+        nanosleep(&req, NULL);
+        int util = cgpu_sample_utilisation();
+        if (util >= 0) {
+            cgpu_log("info", "sm share declared=%d%% measured=%d%%%s", g_sm_percent, util,
+                     g_sm_sampled_self ? "" : " (device-wide, includes co-tenants)");
+        }
+    }
+    return NULL;
+}
+
+static void cgpu_sm_start(void)
+{
+    pthread_t t;
+    if (pthread_create(&t, NULL, cgpu_sm_watcher, NULL) == 0) pthread_detach(t);
+}
+
+/*
+ * Called before every intercepted kernel launch.
+ *
+ * Duty cycling, not utilisation feedback, is what actually produces proportional shares.
+ * The first version of this throttled on the process's own measured utilisation, and it
+ * enforced a single job's share correctly (declared 30% -> 31% of solo throughput) but
+ * failed the case the whole feature exists for. Measured with two co-tenants declaring 60%
+ * and 20%:
+ *
+ *     tenant-A (60%)  200.2 GFLOP/s
+ *     tenant-B (20%)  190.7 GFLOP/s     <- should have been about a third of A
+ *
+ * The signal was the problem. A process's own utilisation falls both when it throttles
+ * itself and when someone else is competing, and those are indistinguishable from inside.
+ * Under contention both tenants read well under target, both concluded they had room, and
+ * neither throttled - so the card was split by the driver's own round-robin instead of by
+ * the declared shares.
+ *
+ * A duty cycle has no such coupling: each window, a job may submit for its declared
+ * fraction and must then stand down, regardless of what anyone else is doing. Two jobs at
+ * 60% and 20% submit for 60% and 20% of wall time, and the ratio between them holds
+ * whether they run alone or together.
+ *
+ * Kept cheap: one clock read and at most one sleep. A workload can launch tens of thousands
+ * of kernels a second, so anything heavier here would become the bottleneck it is measuring.
+ * The window state is deliberately unsynchronised - concurrent launches may race on it, and
+ * the worst outcome is a slightly early window rollover, which is not worth a mutex on this
+ * path.
+ */
+/* Ignore gaps longer than this as the job being idle rather than computing, so a workload
+ * that pauses is not billed for the pause. */
+#define CGPU_SM_IDLE_GAP_US 1000000LL
+/* Ceiling on a single stand-down, so a long kernel cannot make the job unresponsive. */
+#define CGPU_SM_MAX_SLEEP_US 250000LL
+
+static volatile long long g_sm_last_gate_us; /* previous gate call, to charge elapsed work */
+
+static long long cgpu_now_us(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (long long)ts.tv_sec * 1000000LL + ts.tv_nsec / 1000;
+}
+
+static inline void cgpu_sm_gate(void)
+{
+    if (g_sm_percent <= 0 || g_sm_percent >= 100) return;
+    pthread_once(&g_sm_once, cgpu_sm_start);
+
+    const long long now = cgpu_now_us();
+    const long long last = g_sm_last_gate_us;
+
+    /*
+     * Charge the interval since the previous launch as work, then stand down for however
+     * long that work "cost" at the declared share:
+     *
+     *     share p  =>  work w must be followed by idle w * (100 - p) / p
+     *
+     * so the job occupies the GPU for p percent of its own wall time. There is no window:
+     * a kernel longer than any fixed window is charged in full and paid for in full, which
+     * is what the earlier window version got wrong - it discarded intervals longer than the
+     * window as "idle", so a job whose kernels ran 88 ms against a 20 ms window was never
+     * throttled at all, and two tenants declaring 60% and 20% both ran flat out.
+     *
+     * For a workload that synchronises after each launch, the charged interval is
+     * essentially the kernel's own run time. For one that pipelines without synchronising,
+     * it is the submission gap and therefore an undercharge - the share is then a bound on
+     * submission rather than on occupancy, which is the honest limit of metering from
+     * inside the process.
+     */
+    long long work = (last == 0) ? 0 : now - last;
+    if (work < 0 || work > CGPU_SM_IDLE_GAP_US) work = 0; /* first call, or genuinely idle */
+
+    if (work > 0) {
+        long long sleep_us = work * (100 - g_sm_percent) / g_sm_percent;
+        if (sleep_us > CGPU_SM_MAX_SLEEP_US) sleep_us = CGPU_SM_MAX_SLEEP_US;
+        if (sleep_us > 0) {
+            struct timespec req = { sleep_us / 1000000LL, (sleep_us % 1000000LL) * 1000L };
+            nanosleep(&req, NULL);
+        }
+    }
+
+    /* Billing restarts after the stand-down, so the idle time is not itself charged. */
+    g_sm_last_gate_us = cgpu_now_us();
 }
 
 static size_t cgpu_hash(void *p)
@@ -610,6 +867,58 @@ cgpu_cu_result_t cuDeviceTotalMem_v2(size_t *bytes, int dev)
     }
     CGPU_REAL(fn_cuDeviceTotalMem, "cuDeviceTotalMem_v2")
     return real(bytes, dev);
+}
+
+/* ---- kernel launches: the compute-share gate -----------------------------------------
+ *
+ * Both API levels are intercepted because they are reached differently. A workload using
+ * the driver API calls cuLaunchKernel directly, so the dynamic linker routes it here. A
+ * framework on the CUDA runtime calls cudaLaunchKernel, and libcudart reaches the driver
+ * through its own internal reference - which our wrapper never sees. Interposing both
+ * covers either style; a workload that statically links the runtime still escapes, the
+ * same limitation that applies to the allocation wrappers.
+ *
+ * The gate runs before the real call so a throttled job delays its own submission rather
+ * than being starved after the work is already queued.
+ */
+
+/* dim3 as the CUDA runtime lays it out; passed by value, so the shape must match. */
+typedef struct { unsigned int x, y, z; } cgpu_dim3;
+
+typedef cgpu_cu_result_t (*fn_cuLaunchKernel)(void *, unsigned int, unsigned int, unsigned int,
+                                             unsigned int, unsigned int, unsigned int,
+                                             unsigned int, void *, void **, void **);
+typedef cgpu_cu_result_t (*fn_cuLaunchKernelEx)(void *, void *, void **, void **);
+typedef cgpu_cuda_error_t (*fn_cudaLaunchKernel)(const void *, cgpu_dim3, cgpu_dim3,
+                                                 void **, size_t, void *);
+
+cgpu_cu_result_t cuLaunchKernel(void *f,
+                                unsigned int gx, unsigned int gy, unsigned int gz,
+                                unsigned int bx, unsigned int by, unsigned int bz,
+                                unsigned int shmem, void *stream, void **params, void **extra)
+{
+    pthread_once(&g_once, cgpu_init);
+    cgpu_sm_gate();
+    CGPU_REAL(fn_cuLaunchKernel, "cuLaunchKernel")
+    return real(f, gx, gy, gz, bx, by, bz, shmem, stream, params, extra);
+}
+
+/* The config-struct form, used by newer toolkits for cluster launches. */
+cgpu_cu_result_t cuLaunchKernelEx(void *cfg, void *f, void **params, void **extra)
+{
+    pthread_once(&g_once, cgpu_init);
+    cgpu_sm_gate();
+    CGPU_REAL(fn_cuLaunchKernelEx, "cuLaunchKernelEx")
+    return real(cfg, f, params, extra);
+}
+
+cgpu_cuda_error_t cudaLaunchKernel(const void *func, cgpu_dim3 gridDim, cgpu_dim3 blockDim,
+                                   void **args, size_t sharedMem, void *stream)
+{
+    pthread_once(&g_once, cgpu_init);
+    cgpu_sm_gate();
+    CGPU_REAL(fn_cudaLaunchKernel, "cudaLaunchKernel")
+    return real(func, gridDim, blockDim, args, sharedMem, stream);
 }
 
 /* ---- dlsym interposition --------------------------------------------------------------

@@ -130,3 +130,81 @@ Results are recorded in [`docs/a3-guard-evidence.md`](../../docs/a3-guard-eviden
 Compiling on the node rather than baking an image is a consequence of the cluster having no registry: an image would otherwise have to be `ctr image import`ed on each node by hand, which is the per-node step the DaemonSet exists to remove. Generating the ConfigMap from the checkout at apply time also means the deployed guard cannot drift from the source here.
 
 A Job then needs only the mount and the environment variables shown under **Use** above; [`deploy/cgpu-criterion6-jobs.yaml`](../../deploy/cgpu-criterion6-jobs.yaml) is a working reference pair, and is the contract the Package 2 scheduler mutator should produce.
+
+## Compute shares
+
+A VRAM quota stops one job exhausting another's memory; it says nothing about who gets the
+SMs. A single job issuing back-to-back kernels holds the card at ~98% and every co-tenant
+queues behind it, so a job entitled to a third of the GPU can still monopolise it.
+
+The guard therefore also meters kernel launches. Declare a share alongside the memory quota:
+
+```bash
+LD_PRELOAD=/opt/cgpu/libcgpu_guard.so \
+CGPU_ALLOCATED_VRAM_MIB=1024 \
+CGPU_ALLOCATED_SM_PERCENT=30 \
+  <workload>
+```
+
+`cuLaunchKernel`, `cuLaunchKernelEx` and `cudaLaunchKernel` are interposed. Each launch is
+charged the time since the previous one — for a workload that synchronises, essentially the
+kernel's own run time — and the job then stands down for however long that work cost at the
+declared share: work `w` at share `p` is followed by `w × (100−p)/p` idle. The job therefore
+occupies the GPU for about `p` percent of its own wall time.
+
+Measured on the RTX 4050 (4096² SGEMM, `test/e2e/gpu` probe):
+
+| Declared | Achieved throughput | GPU utilisation |
+| --- | --- | --- |
+| unlimited | 932.6 GFLOP/s | 98% |
+| 30% | 170.5 GFLOP/s (18% of unlimited) | — |
+
+Two co-tenants on one card, 40 s each:
+
+| Job | Declared | GFLOP/s |
+| --- | --- | --- |
+| tenant-A | 60% | 452.9 |
+| tenant-B | 20% | 80.8 |
+
+### What these numbers do and do not show
+
+Shares are enforced and ordered correctly, but they are not precise:
+
+- **A single job undershoots** — 30% declared produced 18% of unlimited throughput. The
+  charged interval includes host-side loop overhead as well as kernel time, and `nanosleep`
+  overshoots, so the job stands down slightly longer than the arithmetic requires.
+- **Co-tenants overshoot the ratio** — 60:20 produced 5.6:1 rather than 3:1, because the
+  smaller job's kernels mostly run while the larger one is also active and therefore
+  contend, whereas the larger job frequently has the card to itself.
+
+Treat a share as a *bound with the right ordering*, not a guarantee of an exact fraction.
+
+### Why not utilisation feedback
+
+The first implementation drove a pre-launch delay from the process's own measured
+utilisation, which enforced a single job's share accurately (30% → 31% of solo throughput)
+and then failed the case the feature exists for. With two co-tenants declaring 60% and 20%:
+
+```text
+tenant-A (60%)  200.2 GFLOP/s
+tenant-B (20%)  190.7 GFLOP/s     <- should have been about a third of A
+```
+
+A process's own utilisation drops both when it throttles itself and when someone else
+competes, and from inside the process those are indistinguishable. Under contention both
+tenants read well under target, both concluded they had room, and neither throttled — so the
+driver's round-robin decided the split instead of the declared shares. Work-versus-wall-time
+accounting has no such coupling, which is why it replaced it.
+
+NVML is still used, but only to report measured utilisation under `CGPU_GUARD_VERBOSE=1`.
+That number distinguishes "the gate is not throttling" from "the gate is throttling and the
+GPU is busy with someone else", which is otherwise guesswork.
+
+### Structural limits
+
+- It bounds **submission**, not execution. A running kernel cannot be preempted, so a job
+  that submits one very long kernel overshoots for its duration.
+- A workload that **statically links the CUDA runtime** escapes, exactly as it does for the
+  allocation wrappers.
+- It is a share of **time**, not a hardware partition. True partitioning (MIG) exists only
+  on datacenter cards; neither GPU in this cluster supports it.
