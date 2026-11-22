@@ -298,7 +298,7 @@ int main(int argc, char **argv)
         unsigned long iters = 0;
         int n_arg = (int)size;
 
-        while (now_sec() - t0 < (double)seconds) {
+        while (now_sec() - t0 < (double)sec onds) {
             void *args[] = { &dA, &dB, &dC, &n_arg };
             if ((rc = cuLaunchKernel(fn, grid, grid, 1, TILE, TILE, 1, 0, NULL, args, NULL)) != CUDA_OK) {
                 say("kernel launch failed: %s", cu_err(rc));
