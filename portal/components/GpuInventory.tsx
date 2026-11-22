@@ -6,6 +6,7 @@ import { getInventory } from '@/lib/api';
 import { fmtDate, fmtGiB, fmtMiB } from '@/lib/format';
 import { usePolling } from '@/lib/usePolling';
 import { DRIVER_RESERVE_MIB } from '@/lib/workloads';
+import { CATEGORY_ORDER, CATEGORY_LABEL, PLATFORM_SERVICES, type ServiceEntry } from '@/lib/services';
 import { ErrorAlert, HealthBadge, NodeStatusBadge, Updated } from './ui';
 
 const POLL_MS = 5000;
@@ -319,6 +320,85 @@ function NodeCard({ node }: { node: GPUNode }) {
   );
 }
 
+const CATEGORY_COLORS: Record<ServiceEntry['category'], string> = {
+  portal:     'var(--accent)',
+  api:        '#4fc3f7',
+  monitoring: '#ff9800',
+  worker:     'var(--neon)',
+};
+
+function ServicePanel() {
+  const groups = CATEGORY_ORDER.map((cat) => ({
+    cat,
+    label: CATEGORY_LABEL[cat],
+    services: PLATFORM_SERVICES.filter((s) => s.category === cat),
+  }));
+
+  return (
+    <div className="card" style={{ marginTop: 24 }}>
+      <div className="card-head">
+        <h2>Platform services &amp; ports</h2>
+        <span className="muted small">{PLATFORM_SERVICES.length} endpoints</span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20 }}>
+        {groups.map(({ cat, label, services }) => (
+          <div key={cat}>
+            <div style={{
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              color: CATEGORY_COLORS[cat],
+              marginBottom: 10,
+              paddingBottom: 4,
+              borderBottom: `1px solid ${CATEGORY_COLORS[cat]}33`,
+            }}>
+              {label}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {services.map((svc) => (
+                <div key={svc.url} style={{
+                  background: 'var(--surface2)',
+                  borderRadius: 6,
+                  padding: '8px 10px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 8,
+                }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--fg)' }}>{svc.name}</div>
+                    <div className="muted small" style={{ marginTop: 2 }}>{svc.description}</div>
+                    <div style={{ marginTop: 4, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <span className="chip mono" style={{ fontSize: 11 }}>{svc.host}</span>
+                      <span className="chip" style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: CATEGORY_COLORS[cat],
+                        background: `${CATEGORY_COLORS[cat]}1a`,
+                        border: `1px solid ${CATEGORY_COLORS[cat]}55`,
+                      }}>:{svc.port}</span>
+                    </div>
+                  </div>
+                  <a
+                    href={svc.url + (svc.path ?? '')}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn small"
+                    style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
+                  >
+                    Open ↗
+                  </a>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function GpuInventory() {
   const poll = usePolling(getInventory, POLL_MS);
   const inv = poll.data;
@@ -352,6 +432,7 @@ export default function GpuInventory() {
           )}
         </>
       )}
+      <ServicePanel />
     </>
   );
 }

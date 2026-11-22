@@ -343,23 +343,92 @@ export default function JobDetail({ jobId, submitted }: { jobId: string; submitt
           <h2>Execution metrics</h2>
           {m ? (
             <dl className="kv">
-              <dt>Final loss</dt>
-              <dd>{fmtNumber(m.final_loss, 4)}</dd>
-              <dt>Final accuracy</dt>
-              <dd>{m.final_accuracy != null ? `${m.final_accuracy.toFixed(2)} %` : '—'}</dd>
-              <dt>Peak VRAM (measured)</dt>
-              <dd>
-                {fmtMiB(m.peak_vram_mib)}
-                {m.peak_vram_mib != null && (
-                  <span className="muted small"> of {fmtMiB(job.placement?.allocated_vram_mib ?? job.requested_vram_mib)} reserved</span>
-                )}
-              </dd>
-              <dt>Epochs completed</dt>
-              <dd>{fmtInt(m.epochs_completed)}</dd>
-              <dt>Throughput</dt>
-              <dd>{m.samples_per_second != null ? `${m.samples_per_second.toFixed(1)} samples/s` : '—'}</dd>
-              <dt>Total duration</dt>
-              <dd>{fmtDuration(m.total_duration_seconds)}</dd>
+              {/* matmul benchmark fields */}
+              {m.gflops != null && (
+                <>
+                  <dt>Throughput</dt>
+                  <dd>{m.gflops.toFixed(1)} GFLOP/s</dd>
+                </>
+              )}
+              {m.matrix_size != null && (
+                <>
+                  <dt>Matrix size</dt>
+                  <dd>{m.matrix_size} × {m.matrix_size}</dd>
+                </>
+              )}
+              {m.iterations != null && (
+                <>
+                  <dt>Iterations</dt>
+                  <dd>{fmtInt(m.iterations)}</dd>
+                </>
+              )}
+              {m.working_set_mib != null && (
+                <>
+                  <dt>Working set</dt>
+                  <dd>{fmtMiB(m.working_set_mib)}</dd>
+                </>
+              )}
+              {m.result_verified != null && (
+                <>
+                  <dt>Result</dt>
+                  <dd>
+                    <span className={`chip ${m.result_verified ? '' : 'err'}`}>
+                      {m.result_verified ? 'arithmetic correct' : 'WRONG RESULT'}
+                    </span>
+                    {m.result_element0 != null && (
+                      <span className="muted small" style={{ marginLeft: 8 }}>
+                        C[0][0]={m.result_element0.toFixed(0)} (expected {m.expected_element0?.toFixed(0)})
+                      </span>
+                    )}
+                  </dd>
+                </>
+              )}
+              {m.elapsed_seconds != null && (
+                <>
+                  <dt>Elapsed</dt>
+                  <dd>{fmtDuration(m.elapsed_seconds)}</dd>
+                </>
+              )}
+              {/* ResNet / training fields */}
+              {m.final_loss != null && (
+                <>
+                  <dt>Final loss</dt>
+                  <dd>{fmtNumber(m.final_loss, 4)}</dd>
+                </>
+              )}
+              {m.final_accuracy != null && (
+                <>
+                  <dt>Final accuracy</dt>
+                  <dd>{m.final_accuracy.toFixed(2)} %</dd>
+                </>
+              )}
+              {m.peak_vram_mib != null && (
+                <>
+                  <dt>Peak VRAM (measured)</dt>
+                  <dd>
+                    {fmtMiB(m.peak_vram_mib)}
+                    <span className="muted small"> of {fmtMiB(job.placement?.allocated_vram_mib ?? job.requested_vram_mib)} reserved</span>
+                  </dd>
+                </>
+              )}
+              {m.epochs_completed != null && (
+                <>
+                  <dt>Epochs completed</dt>
+                  <dd>{fmtInt(m.epochs_completed)}</dd>
+                </>
+              )}
+              {m.samples_per_second != null && (
+                <>
+                  <dt>Throughput</dt>
+                  <dd>{m.samples_per_second.toFixed(1)} samples/s</dd>
+                </>
+              )}
+              {m.total_duration_seconds != null && (
+                <>
+                  <dt>Total duration</dt>
+                  <dd>{fmtDuration(m.total_duration_seconds)}</dd>
+                </>
+              )}
             </dl>
           ) : (
             <p className="muted" style={{ margin: 0 }}>

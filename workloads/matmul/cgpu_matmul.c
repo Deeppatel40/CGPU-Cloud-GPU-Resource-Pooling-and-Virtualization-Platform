@@ -298,7 +298,7 @@ int main(int argc, char **argv)
         unsigned long iters = 0;
         int n_arg = (int)size;
 
-        while (now_sec() - t0 < (double)sec onds) {
+        while (now_sec() - t0 < (double)seconds) {
             void *args[] = { &dA, &dB, &dC, &n_arg };
             if ((rc = cuLaunchKernel(fn, grid, grid, 1, TILE, TILE, 1, 0, NULL, args, NULL)) != CUDA_OK) {
                 say("kernel launch failed: %s", cu_err(rc));
@@ -329,6 +329,8 @@ int main(int argc, char **argv)
 
         say("done iters=%lu elapsed=%.1fs %.1f GFLOP/s element0=%.1f expected=%ld verified=%s",
             iters, elapsed, gf, (double)probe, size, correct ? "yes" : "NO");
+        say("RESULT: C[0][0]=%.2f, expected=%.2f, arithmetic %s",
+            (double)probe, (double)size, correct ? "CORRECT" : "WRONG");
 
         char path[512];
         snprintf(path, sizeof path, "%s/metrics.json", outdir);
@@ -345,10 +347,15 @@ int main(int argc, char **argv)
                     "  \"elapsed_seconds\": %.3f,\n"
                     "  \"gflops\": %.2f,\n"
                     "  \"working_set_mib\": %zu,\n"
-                    "  \"result_verified\": %s\n"
+                    "  \"result_element0\": %.2f,\n"
+                    "  \"expected_element0\": %.2f,\n"
+                    "  \"result_verified\": %s,\n"
+                    "  \"result_summary\": \"C[0][0]=%.2f expected=%ld arithmetic=%s\"\n"
                     "}\n",
                     job ? job : g_label, name, uuid, size, iters, elapsed, gf,
-                    need >> 20, correct ? "true" : "false");
+                    need >> 20, (double)probe, (double)size,
+                    correct ? "true" : "false",
+                    (double)probe, size, correct ? "CORRECT" : "WRONG");
             fclose(m);
             say("wrote %s", path);
         } else {

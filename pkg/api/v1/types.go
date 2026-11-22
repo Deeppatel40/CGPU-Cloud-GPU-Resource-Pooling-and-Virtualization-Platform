@@ -163,14 +163,26 @@ type ArtifactMetadata struct {
 	CreatedAt      time.Time `json:"created_at" bson:"created_at"`
 }
 
-// ExecutionMetrics captures post-run statistics.
+// ExecutionMetrics captures post-run statistics. Fields are workload-specific;
+// unrecognised keys in the uploaded metrics.json are silently dropped.
 type ExecutionMetrics struct {
+	// ResNet / training workloads
 	FinalLoss            *float64 `json:"final_loss,omitempty" bson:"final_loss,omitempty"`
 	FinalAccuracy        *float64 `json:"final_accuracy,omitempty" bson:"final_accuracy,omitempty"`
 	PeakVRAMMiB          *int     `json:"peak_vram_mib,omitempty" bson:"peak_vram_mib,omitempty"`
 	TotalDurationSeconds *float64 `json:"total_duration_seconds,omitempty" bson:"total_duration_seconds,omitempty"`
 	EpochsCompleted      *int     `json:"epochs_completed,omitempty" bson:"epochs_completed,omitempty"`
 	SamplesPerSecond     *float64 `json:"samples_per_second,omitempty" bson:"samples_per_second,omitempty"`
+	// matmul benchmark workload
+	GFLOPs          *float64 `json:"gflops,omitempty" bson:"gflops,omitempty"`
+	MatrixSize       *int64   `json:"matrix_size,omitempty" bson:"matrix_size,omitempty"`
+	Iterations       *int64   `json:"iterations,omitempty" bson:"iterations,omitempty"`
+	ElapsedSeconds   *float64 `json:"elapsed_seconds,omitempty" bson:"elapsed_seconds,omitempty"`
+	WorkingSetMiB    *int64   `json:"working_set_mib,omitempty" bson:"working_set_mib,omitempty"`
+	ResultVerified   *bool    `json:"result_verified,omitempty" bson:"result_verified,omitempty"`
+	ResultElement0   *float64 `json:"result_element0,omitempty" bson:"result_element0,omitempty"`
+	ExpectedElement0 *float64 `json:"expected_element0,omitempty" bson:"expected_element0,omitempty"`
+	ResultSummary    *string  `json:"result_summary,omitempty" bson:"result_summary,omitempty"`
 }
 
 // JobTimestamps tracks all lifecycle milestones.

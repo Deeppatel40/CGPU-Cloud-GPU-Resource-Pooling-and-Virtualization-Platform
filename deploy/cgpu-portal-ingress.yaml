@@ -1,0 +1,69 @@
+# CGPU Portal – Kubernetes Ingress (Traefik)
+# =============================================================================
+# Traefik (k3s's built-in ingress controller) owns port 80 on every cluster
+# node via kube-proxy DNAT rules. Nginx on the same port works at the socket
+# level but never sees traffic because the iptables PREROUTING rule rewrites
+# destination 10.20.24.32:80 to Traefik before packets hit the kernel socket.
+#
+# This Ingress configures Traefik to forward all HTTP traffic to the portal's
+# Next.js process on PC2 at port 3000 through a headless Service with a manual
+# Endpoint. No pods are involved; the endpoint is the host IP directly.
+#
+# After applying:
+#   http://10.20.24.32   → Traefik → Next.js portal on PC2:3000
+#   http://10.20.24.31   → Traefik → Next.js portal on PC2:3000  (bonus)
+---
+# Manual endpoint for the portal process running outside Kubernetes.
+apiVersion: v1
+kind: Service
+metadata:
+  name: cgpu-portal-svc
+  namespace: cgpu-system
+spec:
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+---
+# Point the Service at PC2's real IP (the Next.js process).
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: cgpu-portal-svc
+  namespace: cgpu-system
+subsets:
+  - addresses:
+      - ip: 10.20.24.32
+    ports:
+      - name: http
+        port: 3000
+        protocol: TCP
+---
+# Standard Ingress – Traefik picks this up automatically.
+# No host: match so it handles all hostnames / bare-IP requests.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cgpu-portal
+  namespace: cgpu-system
+  annotations:
+    # Tell Traefik to strip any X-Forwarded-Prefix before forwarding.
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+spec:
+  ingressClassName: traefik
+  defaultBackend:
+    service:
+      name: cgpu-portal-svc
+      port:
+        number: 3000
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: cgpu-portal-svc
+                port:
+                  number: 3000

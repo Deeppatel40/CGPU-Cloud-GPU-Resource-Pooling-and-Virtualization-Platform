@@ -91,6 +91,16 @@ export interface ExecutionMetrics {
   total_duration_seconds?: number | null;
   epochs_completed?: number | null;
   samples_per_second?: number | null;
+  // matmul workload fields
+  gflops?: number | null;
+  matrix_size?: number | null;
+  iterations?: number | null;
+  elapsed_seconds?: number | null;
+  working_set_mib?: number | null;
+  result_verified?: boolean | null;
+  result_element0?: number | null;
+  expected_element0?: number | null;
+  result_summary?: string | null;
 }
 
 export interface JobTimestamps {
