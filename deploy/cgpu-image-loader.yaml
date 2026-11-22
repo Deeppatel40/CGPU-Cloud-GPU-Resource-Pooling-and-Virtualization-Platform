@@ -26,10 +26,7 @@
 # an older build of the same tag - the failure mode that had a stale, broken
 # gpu-matmul image running on one worker while every other node was fine.
 #
-# Serve the tarball first, from the machine holding it (PC2):
-#   cd /home/g6/cgpu-app && nohup python3 -m http.server 8090 --bind 0.0.0.0 &
-#
-# Then:
+# Stage the tarball first (see cgpu-image-stage.yaml), then:
 #   kubectl apply -f deploy/cgpu-image-loader.yaml
 #   kubectl -n cgpu-system logs -l app.kubernetes.io/name=cgpu-image-loader
 #
@@ -49,8 +46,14 @@ metadata:
   namespace: cgpu-system
 data:
   # Images to load: one "<tarball-url> <image-ref>" per line.
+  #
+  # Served by the staging Deployment in cgpu-image-stage.yaml, reached on the
+  # control plane's NodePort. This ConfigMap is part of the manifest on purpose:
+  # generating it separately and then applying this file overwrote the generated
+  # value with the one committed here, and the loader quietly fetched from an
+  # address that was not serving anything. One source of truth avoids that.
   images: |
-    http://10.20.24.32:8090/gpu-matmul.tar docker.io/cgpu/workloads/gpu-matmul:1.0.0
+    http://10.20.24.31:30809/gpu-matmul.tar docker.io/cgpu/workloads/gpu-matmul:1.0.0
   load.sh: |
     #!/bin/sh
     # Runs on the node, talking to the node's own containerd through its socket.

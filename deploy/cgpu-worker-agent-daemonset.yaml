@@ -1,0 +1,118 @@
+# CGPU worker agent, as a DaemonSet
+# =============================================================================
+# Runs the GPU/per-job telemetry agent on every node labelled cgpu.dev/gpu=true.
+#
+# Owner / engineer: Deep Patel (@Deeppatel40)
+#
+# Replaces starting the agent by hand on each laptop. That mattered more than it
+# sounds: the agent is the only source of measured GPU figures and per-job VRAM,
+# so a worker without it reports "unavailable" for everything in the portal and
+# contributes no series to Grafana - while still showing Ready in kubectl. A
+# hand-started agent also dies with its shell, and on a WSL worker the distro
+# idles out and takes it down, so "it was running yesterday" is not a guarantee.
+#
+# Kubernetes restarts it, starts it on nodes that join later, and reaches nodes
+# that cannot be contacted over SSH - which is how the RTX 3050 laptop gets its
+# telemetry despite being unreachable inbound.
+#
+# Requires:
+#   - the image imported on each GPU node (deploy/cgpu-image-loader.yaml)
+#   - nodes labelled: kubectl label node <node> cgpu.dev/gpu=true
+#
+# Apply:
+#   kubectl apply -f deploy/cgpu-worker-agent-daemonset.yaml
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: cgpu-worker-agent
+  namespace: cgpu-system
+  labels:
+    app.kubernetes.io/name: cgpu-worker-agent
+    app.kubernetes.io/part-of: cgpu
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cgpu-worker-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cgpu-worker-agent
+        app.kubernetes.io/part-of: cgpu
+    spec:
+      nodeSelector:
+        cgpu.dev/gpu: "true"
+      # Telemetry from a node being drained or repaired is exactly when it is
+      # most useful, so tolerate taints.
+      tolerations:
+        - operator: Exists
+      automountServiceAccountToken: false
+      # hostNetwork so the agent is reachable at <node-ip>:9400, which is where
+      # both the API and Prometheus look for it. It is also required on the WSL
+      # workers, where the pod overlay does not work.
+      hostNetwork: true
+      dnsPolicy: Default
+      # The NVIDIA runtime injects nvidia-smi and the driver libraries; the
+      # agent shells out to nvidia-smi rather than linking NVML.
+      runtimeClassName: nvidia
+      containers:
+        - name: agent
+          image: docker.io/cgpu/cgpu-worker-agent:1.0.0
+          # The image is side-loaded into each node's containerd, so never try
+          # to pull it - there is no registry serving this tag.
+          imagePullPolicy: IfNotPresent
+          args:
+            - -listen
+            - 0.0.0.0:9400
+            - -guard-status-dir
+            - /var/run/cgpu/guard
+            # Allocatable = total minus this, because CUDA contexts cost device
+            # memory that no job's quota accounts for. Handing out the full card
+            # lets placement overcommit it and a job fails at startup instead of
+            # queueing.
+            - -reserve-mib
+            - "512"
+          env:
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: all
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: compute,utility
+            - name: CGPU_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          ports:
+            - name: metrics
+              containerPort: 9400
+              hostPort: 9400
+          volumeMounts:
+            # Per-job VRAM accounting is written here by the allocation guard
+            # inside each job's container. On a WSL worker the driver reports no
+            # per-process VRAM, so the guard's tally is the only per-job signal
+            # that exists - the agent reads these files and exports them.
+            - name: guard-status
+              mountPath: /var/run/cgpu/guard
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      volumes:
+        - name: guard-status
+          hostPath:
+            path: /var/run/cgpu/guard
+            type: DirectoryOrCreate

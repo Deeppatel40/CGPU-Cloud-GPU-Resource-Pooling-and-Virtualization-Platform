@@ -1,0 +1,107 @@
+# CGPU image staging server
+# =============================================================================
+# Serves workload image tarballs over HTTP inside the cluster, so the image
+# loader DaemonSet has somewhere to fetch from.
+#
+# Owner / engineer: Deep Patel (@Deeppatel40)
+#
+# Why in the cluster rather than a python http.server on a PC: a stray detached
+# process on a shared machine is unsupervised - nothing restarts it, nothing
+# records that it exists, and the next person to look at that box has no idea
+# why port 8090 is open. As a Deployment it is visible in `kubectl get all`,
+# restarts if it dies, and is removed by deleting the manifest.
+#
+# The tarball is not baked into an image or a ConfigMap (a ConfigMap caps at
+# ~1 MB and these are ~100 MB). It is copied into the running pod:
+#
+#   kubectl -n cgpu-system cp gpu-matmul.tar \
+#       $(kubectl -n cgpu-system get pod -l app.kubernetes.io/name=cgpu-image-stage \
+#           -o jsonpath='{.items[0].metadata.name}'):/data/gpu-matmul.tar
+#
+# That means the file is lost if the pod moves, which is correct for a staging
+# area: it exists only while images are being distributed. Re-copy and the
+# loader picks it up again.
+#
+# Reachable at http://<control-plane-ip>:30809/ via NodePort. NodePort rather
+# than ClusterIP on purpose: the loader runs with hostNetwork on WSL workers,
+# where the pod overlay is unusable, so it needs a routable address.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cgpu-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cgpu-image-stage
+  namespace: cgpu-system
+  labels:
+    app.kubernetes.io/name: cgpu-image-stage
+    app.kubernetes.io/part-of: cgpu
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cgpu-image-stage
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cgpu-image-stage
+        app.kubernetes.io/part-of: cgpu
+    spec:
+      # Pin to the control plane: it is the machine that stays up, and staging
+      # files on a laptop that sleeps defeats the point.
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: "true"
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: httpd
+          image: docker.io/library/busybox:1.36
+          imagePullPolicy: IfNotPresent
+          # busybox httpd, read-only, no CGI, no uploads - it only needs to
+          # hand out a file that is already there.
+          command: ["/bin/sh", "-c", "mkdir -p /data && exec httpd -f -v -p 8080 -h /data"]
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 3
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      volumes:
+        # emptyDir, not a PVC: this cluster has no storage class, and the
+        # content is transient by design.
+        - name: data
+          emptyDir:
+            sizeLimit: 4Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cgpu-image-stage
+  namespace: cgpu-system
+  labels:
+    app.kubernetes.io/name: cgpu-image-stage
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: cgpu-image-stage
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      nodePort: 30809
