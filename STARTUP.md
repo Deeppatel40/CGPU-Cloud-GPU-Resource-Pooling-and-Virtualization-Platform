@@ -77,6 +77,251 @@ After that only the portal needs starting by hand.
 
 ---
 
+## 1b. The same thing by hand (no scripts)
+
+Every command `start-cgpu.ps1` runs, in order, in case you want to start pieces
+selectively, run them on a worker without the scripts, or see what the script
+is actually doing. Run the Linux commands as root inside the distro:
+
+```powershell
+wsl -d Ubuntu -u root
+```
+
+Paths below assume the repo at `/mnt/d/Cloud_Project/CGPU-Cloud-GPU-Resource-Pooling-and-Virtualization-Platform`
+(`export REPO=` that to shorten them).
+
+### 1. Cluster agent
+
+```bash
+systemctl start k3s-agent
+systemctl is-active k3s-agent
+nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
+```
+
+### 2. Allocation guard
+
+Every GPU pod bind-mounts `/opt/cgpu`; without the library they fail to start.
+
+```bash
+cd $REPO/pkg/guard
+./build.sh /var/lib/cgpu/bin
+install -D -m 644 /var/lib/cgpu/bin/libcgpu_guard.so /opt/cgpu/libcgpu_guard.so
+```
+
+### 3. Worker agent (:9400)
+
+```bash
+# only if the binary is missing (needs Go)
+cd $REPO && go build -buildvcs=false -o /usr/local/bin/cgpu-worker-agent ./cmd/cgpu-worker-agent
+
+mkdir -p /var/run/cgpu/guard
+setsid /usr/local/bin/cgpu-worker-agent \
+    -listen 0.0.0.0:9400 \
+    -guard-status-dir /var/run/cgpu/guard \
+    -reserve-mib 512 >/var/log/cgpu-agent.log 2>&1 < /dev/null &
+
+curl -s http://127.0.0.1:9400/healthz
+```
+
+`setsid` matters: without it the agent dies with the shell that started it.
+
+### 4. Monitoring config (first time only)
+
+Prometheus and Grafana read these from `/var/lib/cgpu/monitoring`. The cluster
+deployment in [`deploy/monitoring/`](deploy/monitoring/) carries the same
+scrape config and dashboard; these are the node-local equivalents.
+
+```bash
+mkdir -p /var/lib/cgpu/monitoring/{prometheus,prom-data,grafana-data} \
+         /var/lib/cgpu/monitoring/grafana/{dashboards,provisioning/datasources,provisioning/dashboards}
+
+cat > /var/lib/cgpu/monitoring/prometheus/prometheus.yml <<'YAML'
+global:
+  scrape_interval: 10s
+scrape_configs:
+  # Scraped over loopback on purpose: this sidesteps the control plane's
+  # hardcoded node IP, so telemetry keeps working when that address is stale.
+  - job_name: cgpu-worker-agent
+    scrape_timeout: 5s
+    static_configs:
+      - targets: ["127.0.0.1:9400"]
+        labels: { node: cgpu-gpu-worker-4050 }
+  - job_name: cgpu-scheduler
+    scrape_timeout: 5s
+    static_configs:
+      - targets: ["10.20.24.31:8082"]
+        labels: { component: scheduler }
+  - job_name: prometheus
+    static_configs:
+      - targets: ["127.0.0.1:9090"]
+YAML
+
+cat > /var/lib/cgpu/monitoring/grafana/provisioning/datasources/datasources.yaml <<'YAML'
+apiVersion: 1
+datasources:
+  - name: CGPU-Prometheus
+    type: prometheus
+    access: proxy
+    url: http://127.0.0.1:9090
+    isDefault: true
+YAML
+
+cat > /var/lib/cgpu/monitoring/grafana/provisioning/dashboards/provider.yaml <<'YAML'
+apiVersion: 1
+providers:
+  - name: cgpu
+    folder: CGPU
+    type: file
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+YAML
+
+# the dashboard itself, lifted out of the cluster manifest so both show the
+# same panels
+python3 - <<'PY'
+import json, yaml, os
+src = os.path.expandvars("$REPO/deploy/monitoring/grafana.yaml")
+for d in yaml.safe_load_all(open(src)):
+    if d and d.get("kind") == "ConfigMap" and "cgpu-overview.json" in (d.get("data") or {}):
+        out = "/var/lib/cgpu/monitoring/grafana/dashboards/cgpu-overview.json"
+        json.dump(json.loads(d["data"]["cgpu-overview.json"]), open(out, "w"), indent=2)
+        print("wrote", out)
+PY
+
+chown -R 472:472 /var/lib/cgpu/monitoring/grafana-data   # grafana runs as uid 472
+```
+
+### 5. Prometheus (:9090)
+
+```bash
+k3s ctr images pull docker.io/prom/prometheus:v3.1.0      # first time only
+k3s ctr container rm cgpu-prometheus 2>/dev/null          # clear any corpse
+
+setsid k3s ctr run --rm --net-host \
+    --mount "type=bind,src=/var/lib/cgpu/monitoring/prometheus,dst=/etc/prometheus,options=rbind:ro" \
+    --mount "type=bind,src=/var/lib/cgpu/monitoring/prom-data,dst=/prometheus,options=rbind:rw" \
+    docker.io/prom/prometheus:v3.1.0 cgpu-prometheus \
+    /bin/prometheus --config.file=/etc/prometheus/prometheus.yml \
+        --storage.tsdb.path=/prometheus \
+        --storage.tsdb.retention.time=7d \
+        --web.listen-address=0.0.0.0:9090 >/var/log/cgpu-prometheus.log 2>&1 < /dev/null &
+
+curl -s http://127.0.0.1:9090/-/ready
+```
+
+### 6. Grafana (:3001)
+
+```bash
+k3s ctr images pull docker.io/grafana/grafana:11.5.1      # first time only
+k3s ctr container rm cgpu-grafana 2>/dev/null
+
+setsid k3s ctr run --rm --net-host \
+    --env GF_SECURITY_ADMIN_USER=admin \
+    --env GF_SECURITY_ADMIN_PASSWORD=admin \
+    --env GF_USERS_ALLOW_SIGN_UP=false \
+    --env GF_SERVER_HTTP_PORT=3001 \
+    --env GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/cgpu-overview.json \
+    --mount "type=bind,src=/var/lib/cgpu/monitoring/grafana-data,dst=/var/lib/grafana,options=rbind:rw" \
+    --mount "type=bind,src=/var/lib/cgpu/monitoring/grafana/dashboards,dst=/var/lib/grafana/dashboards,options=rbind:ro" \
+    --mount "type=bind,src=/var/lib/cgpu/monitoring/grafana/provisioning,dst=/etc/grafana/provisioning,options=rbind:ro" \
+    docker.io/grafana/grafana:11.5.1 cgpu-grafana >/var/log/cgpu-grafana.log 2>&1 < /dev/null &
+
+curl -s http://127.0.0.1:3001/api/health
+```
+
+`GF_SERVER_HTTP_PORT=3001` is required, not cosmetic: 3000 is also Next.js's
+default port, and under WSL mirrored networking the distro shares the Windows
+ports — so any `npm start` in `portal/` makes Grafana fail with *"address
+already in use"* while nothing appears to be listening inside WSL.
+
+If `admin / admin` is rejected, the password was fixed when Grafana's database
+was first created and the env var no longer applies. Reset it:
+
+```bash
+k3s ctr task kill -s SIGTERM cgpu-grafana; sleep 4; k3s ctr container rm cgpu-grafana
+k3s ctr run --rm \
+    --mount "type=bind,src=/var/lib/cgpu/monitoring/grafana-data,dst=/var/lib/grafana,options=rbind:rw" \
+    docker.io/grafana/grafana:11.5.1 cgpu-grafana-reset \
+    grafana cli --homepath /usr/share/grafana admin reset-admin-password admin
+```
+
+### 7. Portal (:3100) — Windows side, not WSL
+
+```powershell
+cd portal
+npm install                                  # first time only
+
+# CGPU_API_URL is read at BUILD time: Next.js bakes the /api/v1 rewrite into
+# the build output, so setting it only for `next start` leaves the old backend
+# baked in. It must also be a real environment variable - npm's Windows shim
+# drops inline VAR=value assignments.
+$env:CGPU_API_URL = "http://10.20.24.32:8080"
+$env:CGPU_PROMETHEUS_URL = "http://127.0.0.1:9090"
+npx next build
+npx next start -p 3100 -H 0.0.0.0
+```
+
+### 8. Keep the distro from idling out
+
+WSL shuts the distro down when nothing holds it open, taking K3s, the agent and
+both containers with it. Either leave a session open:
+
+```powershell
+wsl -d Ubuntu --exec sleep infinity          # in its own window
+```
+
+or install the systemd units (see the end of §1), which is the durable fix.
+
+### Optional: put load on the GPU
+
+Two matmul jobs sharing the card under separate quotas:
+
+```bash
+S=/var/run/cgpu/guard; mkdir -p $S
+run() {   # job quota target seconds
+  k3s ctr run --rm --runc-binary /usr/bin/nvidia-container-runtime \
+    --env NVIDIA_VISIBLE_DEVICES=all --env NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    --env LD_PRELOAD=/opt/cgpu/libcgpu_guard.so \
+    --env CGPU_ALLOCATED_VRAM_MIB=$2 --env CGPU_JOB_ID=$1 \
+    --env CGPU_GUARD_STATUS_FILE=/var/run/cgpu/guard/$1.json \
+    --mount "type=bind,src=/opt/cgpu,dst=/opt/cgpu,options=rbind:ro" \
+    --mount "type=bind,src=$S,dst=/var/run/cgpu/guard,options=rbind:rw" \
+    docker.io/cgpu/workloads/gpu-matmul:1.0.0 "cgpu-$1-$RANDOM" \
+    /usr/local/bin/cgpu_matmul --label $1 --size $3 --seconds $4
+}
+run demo-a 1536 4096 240 &
+run demo-b 1024 3072 240 &
+
+nvidia-smi --query-gpu=utilization.gpu,memory.used,temperature.gpu --format=csv,noheader
+```
+
+> `ctr run` replaces the image's ENTRYPOINT with whatever arguments follow the
+> container name, so the binary path must be spelled out. Kubernetes honours the
+> ENTRYPOINT, so a Job submitted through the portal needs no command.
+
+### Stopping by hand
+
+```bash
+# monitoring (--rm, so killing the task removes the container)
+for c in cgpu-prometheus cgpu-grafana; do
+    k3s ctr task kill -s SIGTERM $c 2>/dev/null; k3s ctr container rm $c 2>/dev/null
+done
+
+# worker agent - match the exact path, since `pkill -f cgpu-worker-agent`
+# also matches the command line running it and kills your own shell
+kill $(pgrep -f '^/usr/local/bin/cgpu-worker-agent')
+```
+
+```powershell
+# portal
+Get-Process node | Where-Object { $_.Id -in (
+    (netstat -ano | Select-String ':3100\s.*LISTENING') | ForEach-Object { ($_ -split '\s+')[-1] }
+) } | Stop-Process -Force
+```
+
+---
+
 ## 2. Control plane (PC1, `10.20.24.31`)
 
 ```bash
