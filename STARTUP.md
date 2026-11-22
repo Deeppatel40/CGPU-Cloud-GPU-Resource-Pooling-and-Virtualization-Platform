@@ -346,6 +346,69 @@ Get-Process node | Where-Object { $_.Id -in (
 
 ---
 
+## 1c. Bringing a GPU laptop into the cluster
+
+Everything a worker needs that `start-cgpu.ps1` does **not** cover, because it
+is one-time setup rather than startup. Run it on the laptop itself.
+
+### Inbound ports (WSL workers)
+
+A WSL worker joins the cluster over **outbound** connections, so it will show
+`Ready` in `kubectl get nodes` while being unreachable *inbound* — and inbound
+is what live logs (kubelet :10250) and telemetry (agent :9400) need. The
+Hyper-V firewall that fronts the WSL VM defaults to blocking inbound, so a
+worker with no rules looks healthy and reports nothing.
+
+In an **Administrator** PowerShell:
+
+```powershell
+$vm = "{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}"   # the WSL VM creator id
+New-NetFirewallHyperVRule -Name "CGPU-Kubelet-In" -DisplayName "CGPU kubelet (TCP 10250 In)" `
+    -VMCreatorId $vm -Direction Inbound -Action Allow -Protocol TCP -LocalPorts 10250
+New-NetFirewallHyperVRule -Name "CGPU-Worker-Agent-In" -DisplayName "CGPU worker agent (TCP 9400 In)" `
+    -VMCreatorId $vm -Direction Inbound -Action Allow -Protocol TCP -LocalPorts 9400
+```
+
+Check it worked from PC1, not from the laptop itself — under WSL mirrored
+networking the host reaches its own shared IP by a different path, so a test
+from the same machine proves nothing:
+
+```bash
+# on PC1
+for p in 10250 9400; do nc -zv <laptop-ip> $p; done
+```
+
+### Workload images
+
+Docker and K3s keep **separate image stores**, and K3s only pulls a tag when it
+is missing — so a node holding an older build of the same tag silently keeps
+running it. Import explicitly on every GPU node:
+
+```bash
+# the tarball is staged on PC2
+scp g6@10.20.24.32:/home/g6/cgpu-app/gpu-matmul.tar /tmp/
+sudo k3s ctr images rm docker.io/cgpu/workloads/gpu-matmul:1.0.0   # or the old one wins
+sudo k3s ctr images import /tmp/gpu-matmul.tar
+sudo k3s ctr images ls | grep matmul
+```
+
+### The rest
+
+```powershell
+.\start-cgpu.ps1        # guard, worker agent, local monitoring
+```
+
+Then confirm from the control plane that the node is actually usable, rather
+than merely `Ready`:
+
+```bash
+# on PC1
+kubectl get nodes -o wide                                    # address matches the laptop
+curl -s http://10.20.24.31:30090/api/v1/targets | grep 9400  # agent target "up"
+```
+
+---
+
 ## 2. Control plane (PC1, `10.20.24.31`)
 
 ```bash
