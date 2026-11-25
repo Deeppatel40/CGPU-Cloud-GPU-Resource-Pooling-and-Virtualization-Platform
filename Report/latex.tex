@@ -1,0 +1,169 @@
+\documentclass[12pt,a4paper]{article}
+
+%% ── Packages ─────────────────────────────────────────────────────────────────
+\usepackage[a4paper, margin=2.5cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{multirow}
+\usepackage{xcolor}
+\usepackage{colortbl}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{setspace}
+\usepackage{parskip}
+\usepackage{mdframed}
+\usepackage{tabularx}
+\usepackage{ragged2e}
+\usepackage{tocloft}
+\usepackage{listings}
+
+%% ── Colour palette ───────────────────────────────────────────────────────────
+\definecolor{primaryblue}{RGB}{128,16,20}
+\definecolor{accentblue}{RGB}{180,40,45}
+\definecolor{lightblue}{RGB}{245,220,220}
+\definecolor{tableheader}{RGB}{128,16,20}
+\definecolor{tablerow}{RGB}{252,235,235}
+\definecolor{mygray}{RGB}{100,100,100}
+\definecolor{darkgray}{RGB}{60,60,60}
+\definecolor{successgreen}{RGB}{34,139,34}
+\definecolor{warningorange}{RGB}{204,102,0}
+\definecolor{primaryred}{RGB}{128,16,20}
+\definecolor{accentred}{RGB}{180,40,45}
+\definecolor{lightred}{RGB}{245,220,220}
+\definecolor{darkred}{RGB}{90,10,12}
+\definecolor{codebg}{RGB}{248,248,248}
+\definecolor{blue}{RGB}{0,0,255}
+
+%% ── Hyperref ─────────────────────────────────────────────────────────────────
+\hypersetup{
+  colorlinks=true,
+  linkcolor= blue,
+  urlcolor=accentblue,
+  pdftitle={Test Plan -- Multi-Tenant Dashboard Platform},
+  pdfauthor={AU2340054 AU2340261 AU2340157 AU2340011 AU2340118},
+}
+
+%% ── Section headings ─────────────────────────────────────────────────────────
+\titleformat{\section}
+  {\color{primaryred}\Large\bfseries}
+  {\thesection}{1em}{}[{\color{accentred}\titlerule[1pt]}]
+
+\titleformat{\subsection}
+  {\color{accentred}\large\bfseries}
+  {\thesubsection}{1em}{}
+
+\titleformat{\subsubsection}
+  {\color{darkred}\normalsize\bfseries}
+  {\thesubsubsection}{1em}{}
+
+%% ── Header and Footer ────────────────────────────────────────────────────────
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\textcolor{primaryred}{\small\textbf{Software Engineering Project}}}
+\fancyhead[R]{\textcolor{mygray}{\small Multi-Tenant Dashboard Platform}}
+\fancyfoot[C]{\textcolor{mygray}{\small Page \thepage}}
+\renewcommand{\headrulewidth}{0.8pt}
+\renewcommand{\headrule}{%
+  \hbox to\headwidth{\color{primaryred}\leaders\hrule height \headrulewidth\hfill}}
+\renewcommand{\footrulewidth}{0.4pt}
+\renewcommand{\footrule}{%
+  \hbox to\headwidth{\color{accentred}\leaders\hrule height \footrulewidth\hfill}}
+
+%% ── TOC styling ──────────────────────────────────────────────────────────────
+\renewcommand{\cftsecfont}{\color{primaryblue}\bfseries}
+\renewcommand{\cftsubsecfont}{\color{accentred}}
+\renewcommand{\cftsecpagefont}{\color{primaryblue}\bfseries}
+
+%% ── Code listing style ───────────────────────────────────────────────────────
+\lstset{
+  backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  rulecolor=\color{accentred},
+  framesep=4pt,
+  xleftmargin=8pt,
+  xrightmargin=8pt,
+}
+
+%% ─────────────────────────────────────────────────────────────────────────────
+\begin{document}
+
+%% ════════════════════════════════════════════════════════════════════════════
+%%  TITLE PAGE
+%% ════════════════════════════════════════════════════════════════════════════
+\begin{titlepage}
+  \thispagestyle{empty}
+  {\color{primaryblue}\rule{\linewidth}{3pt}}
+
+  \begin{center}
+    {\large\color{mygray}\textbf{AHMEDABAD UNIVERSITY}}\\[0.2cm]
+    {\normalsize\color{mygray} School Of Engineering And Applied Science}
+  \end{center}
+
+  \vspace{0.5cm}
+  {\color{accentblue}\rule{\linewidth}{1pt}}
+  \vspace{1.2cm}
+
+  \begin{center}
+    {\color{primaryblue}\Huge\bfseries Comprehensive Test Plan}\\[0.8cm]
+    {\color{accentblue}\LARGE Multi-Tenant Dashboard Platform}\\[0.5cm]
+    {\large\color{darkgray}
+      Complete Testing Strategy for Production Deployment}
+  \end{center}
+
+  \vspace{1.4cm}
+
+  \begin{center}
+    \begin{tabular}{>{\bfseries\color{primaryblue}}l l}
+      Course          & Software Engineering  \\[4pt]
+      Semester        & Sixth Semester                           \\[4pt]
+      Academic Year   & 2026                       \\[4pt]
+      Submission Date & \today                                          \\[4pt]
+      Test Plan Version & 1.0                \\[4pt]
+      Current Phase   & Implementation and Testing Phase                \\
+    \end{tabular}
+  \end{center}
+
+  \vspace{1.4cm}
+
+  \begin{mdframed}[backgroundcolor=lightblue,linecolor=primaryblue,linewidth=1.5pt,
+      innertopmargin=12pt,innerbottommargin=12pt,
+      innerleftmargin=15pt,innerrightmargin=15pt]
+    \begin{center}
+      {\large\bfseries\color{primaryblue} Project Team}\\[0.6cm]
+      \begin{tabular}{c c c}
+        \textbf{Foram Gohel}            & \textbf{Nishit Patel}       & \textbf{Subrat Jain}  \\
+        \textit{AU2340054}              & \textit{AU2340261}          & \textit{AU2340157}    \\[8pt]
+        \textbf{Deep Sunilkumar Patel}  & \textbf{Nirav Brijesh Shah} &                       \\
+        \textit{AU2340011}              & \textit{AU2340118}          &                       \\
+      \end{tabular}
+    \end{center}
+  \end{mdframed}
+
+  \vspace{1cm}
+
+  \begin{center}
+    {\normalsize\color{mygray} Submitted to:
+      \textbf{\color{primaryblue} Prof. Kuntal Patel}}
+  \end{center}
+
+  \vfill
+  {\color{primaryblue}\rule{\linewidth}{3pt}}
+\end{titlepage}
+
+%% ── Table of Contents ────────────────────────────────────────────────────────
+% \tableofcontents
+
+%% ════════════════════════════════════════════════════════════════════════════
+\section{Section 1}
+
+
+
+\end{document}
